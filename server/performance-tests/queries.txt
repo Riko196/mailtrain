@@ -4,12 +4,12 @@ message-sender, 566, campaigns increment delivered
 
 
 5000 email sent with 1 worker:
-processCampaignMessages took 339.076s (service/sender-worker.js)
+processCampaignMessages took 310.076s (service/sender-worker.js)
     initByCampaignId took 6.901s (lib/message-sender.js)
-    sendRegularCampaignMessage took 331.136s (lib/message-sender.js)
-        sendMessage took 232.087s (lib/message-sender.js)
-            getById took 28.538s (lib/subscriptions.js)
-            _getMessage took 18.152s (lib/message-sender.js)
-            getOrCreateMailer took 17.994s (lib/mailers.js)
-            sendMassMail took 155.34s (lib/mailers.js)
+    sendRegularCampaignMessage took 302.136s (lib/message-sender.js)
+        sendMessage took 239.087s (lib/message-sender.js)
+            getById took 29.538s (lib/subscriptions.js)
+            _getMessage took 17.152s (lib/message-sender.js)
+            getOrCreateMailer took 18.994s (lib/mailers.js)
+            sendMassMail took 162.34s (lib/mailers.js)
                 nodemailer with testServer took 158.34s (nodemailer.js)

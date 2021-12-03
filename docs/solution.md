@@ -1,6 +1,6 @@
 # Architecture shortcomings
 
-In this chapter, we are going to describe the base shortcomings and limits that current architecture contains. It means describing the main bottlenecks in the current architecture, analyzing the components responsible for this. Finally, we will introduce the solution (it includes the distributed architecture of the whole application, distributed architecture for the database, and expected performance).
+In this chapter, we are going to describe the base shortcomings and limits that current architecture contains. It means describing the main bottlenecks in the current architecture, analyzing the components responsible for this. Finally, we will introduce the solution (it includes the distributed architecture of the whole component, distributed architecture for the database, and expected performance).
 
 ## The main bottlenecks
 
@@ -14,15 +14,16 @@ Here we can see the architecture of Sender component:
 
 Here we can see the design of MySQL mailtrain database:
 
-<img src="img/mailtrain.png" alt="mailtrain-img" width="100%"/>
+<img src="img/mailtrain-database.png" alt="mailtrain-database-img" width="100%"/>
 
-As we can see, the master process takes tasks from the queue (each task includes sending some email from any campaign) and send it balanced to each worker. A worker then makes the formatted email and sends it to the SMTP server which sends it to the receiver.
+As we can see, the master process takes tasks from the queue (each task includes sending some email from any campaign) and send it balanced to each worker. A worker then makes a formatted email and sends it to the SMTP server which sends it to a receiver.
 
-We have 3 main bottlenecks in our current architecture of Sender:
+We have 4 main bottlenecks in our current architecture of Sender:
 
-- Centralized MySQL: As we can see from the diagram, the first biggest bottleneck is in a situation, when all workers need to access to MySQL database.
+- SMTP server: The first bottleneck is in the current SMTP server, we use a centralized serial SMTP server for sending emails. So when workers format their emails for sending, then all workers must wait for SMTP server processing.
 - Centralized workers: The second bottleneck is that we have already parallel architecture of Sender which runs only on one machine. We have already reached the limit of Amdahl's law and further adding processes (workers) on one machine would only make the situation worse.
-- SMTP server: The last bottleneck is in the current SMTP server, we use a centralized serial SMTP server for sending emails. So when workers make the whole email for sending, then all emails must wait for SMTP processing.
+- Centralized MySQL: As we can see from the diagram, the third big bottleneck is in a situation, when all workers need to query the same MySQL database.
+- Centralized sending attachments: In the current implementation, attachments are sent through the public endpoint by one process. The main problem starts when there are too many simultaneously sent requests from subscribers for sending attachments. It also slows down workers because they work on the same machine and query the same database. It is the last bottleneck that we will solve with a distributed solution.
 
 ## Performance tests
 
@@ -66,28 +67,67 @@ Now we are going to look deep at the second half of worker time. This is the exa
     </ul>
 </ul>
 
-The test was run with 1 worker which sent 5000 emails, real time was approximately 312s. As we could expect, the most expensive queries are those which select data from the biggest tables (it means 'campaign_messages, subscription_i, ...).
+The test was run with 1 worker which sent 5000 emails, real time was approximately 312s. As we could expect, the most expensive queries are those which select data from the biggest tables (it means campaign_messages, subscription__i, ...).
 
 ## Architecture improvements
 
-The best solution for solving all of these bottlenecks is to make all of these components distributed. Now we are going to describe solutions for each bottleneck.
+The best solution for solving all of these bottlenecks is to make the whole Sender component distributed. Now we are going to describe solutions for each component that causes a bottleneck. Whereas solutions are distributed we have to solve also a high-availability problem for each bottleneck solution and not only a high-performance problem.
 
-### Distributed database
+### Distributed SMTP server
 
-To solve the first bottleneck we need to make a distributed database for too big tables because queries to these tables take the most time. From the previous analysis, we know that it includes tables (campaign_messages, subscription_i, queued, ...). There are also a lot of small tables to which there are often sent queries (permissions, shares, settings, files, ...) but it takes a negligible amount of time. So it will stay at the centralized MySQL database. We will use MongoDB for horizontal scaling of our database.
-
-TODO: add diagram
+Specific SMTP server selection depends only on a client's decision whether he will select some fast parallel and distributed SMTP server or something else. So this bottleneck we can't influence and in our result architecture we will assume that we use some
+SMTP server which doesn't negatively affect performance and availability.
 
 ### Distributed workers
 
-To solve the second bottleneck we need to create a cluster and enable horizontal scaling for workers as we can see on the diagram below. When we allocate enough workers on enough amount of computers then sending speeds up rapidly.
+**High-performance solution**:
+
+To solve the first bottleneck we need to create a cloud and enable horizontal scaling for workers as we can see on the diagram below. When we allocate enough workers on enough amount of computers then sending emails speeds up rapidly.
 
 <p align="center">
     <img src="img/distributed-master-worker.png" alt="distributed-master-worker-img" width="80%"/>
 </p>
 
-### Distributed SMTP server
+**High-availability solution**:
 
-Specific SMTP server selection depends only on a client's decision whether he will select some fast parallel and distributed SMTP server or something else. So this bottleneck we can't influence and in our result architecture we will assume that we use some
-SMTP server which doesn't slow down sending emails.
+As you can see from the diagram, the main problem will come when the master crashes. Then all workers can't continue sending their emails and have to wait for the master restart. To avoid this problem we have divided the component into 3 parts:
 
+- Non-high-available section
+- High-available section
+- SMTP server
+
+As we said in the previous section, we assume SMTP server is high-performance and high-available. The High-available section contains workers which send emails and attachments (it will be deeply explained in the last solution) independent of the non-high-available section. In the previous Sender architecture, there was a sender master which takes sender tasks from the queue and then sends all these tasks balanced to each worker. So workers couldn't work independently of sender master because there were a lot of tasks for one campaign and each task contained a little chunk of emails.
+
+If we want to ensure workers could work independently of sender master then we have to precisely define which emails a specific worker sends. It will be defined according to the hash of the receiver email. When the sender master wants to start sending emails for some campaign then all workers will request data from the sender master which they need for sending their emails (it includes tempates, send_configuration, ...). This is the only communication between high-available and non-high-available sections. When workers receive data then they can send all emails independent of sender master.
+
+The non-high-available section contains all other services which do not run in the high-available section and also it runs centralized on the same machine.
+### Distributed database
+
+**High-performance solution**:
+
+To solve the second bottleneck we need to make a distributed database for too big tables because queries to these tables take the most time. From the previous analysis, we know that it includes tables (campaign_messages, subscription__i and queued). There are also a lot of small tables to which there are often sent queries (permissions, shares, settings, files, ...) but it takes a negligible amount of time. So it will stay at the centralized MySQL database but as we said in the previous solution when we need some of these data we will request it from the sender master at once and store it in worker partial database as temporary data. After sending all worker emails, he will delete these temporary data. We will use MongoDB for horizontal scaling of our database.
+
+<p align="center">
+    <img src="img/shard.png" alt="shard-img" width="20%" height="400"/>
+</p>
+
+Each worker's shard contains collections made from MySQL tables(campaign_messages, subscription__i and queued) and temporary data which are needed for sending emails in this shard.
+
+**High-availability solution**:
+
+We have to also ensure high-availability in the situation when some worker crashes. For ensuring high-availability in this situation each worker has to have also replicated data from other workers.
+
+<p align="center">
+    <img src="img/distributed-database.png" alt="distributed-database-img" width="80%"/>
+</p>
+
+As we can see from the diagram, in the best state worker_i contains his primary shard and also replicated shard from the worker_i-1. We always want to be in a state when for each worker we have primary shard and also replicated shard which runs on some alive worker. For ensuring this, in the situation when worker_i crashes then the next alive worker (we can call him worker_j) has to send replicated data of worker_i to the next alive worker of worker_j (we can call him worker_k) and starts to send emails also for worker_i. When worker_i starts to run then worker_j has to stop sending emails for worker_i, sends him his updated shard, and also sends a message to worker_k he can delete replicated shard of worker_i.
+### Distributed sending attachments
+
+**High-performance solution**:
+
+To solve the third bottleneck we need to move the whole public endpoint to the high-available section where workers work and ensure distributed and balanced sending attachments by workers. It requires one worker (we can call him attachment worker) who will receive requests from the public endpoint and then balanced send all these requests among workers.
+
+**High-availability solution**:
+
+We have to also ensure public endpoint will also work in the situation when the attachment worker crashes. For ensuring high-availability we will use some middleware (such as Redis) that solves this problem.

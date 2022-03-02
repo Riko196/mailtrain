@@ -9,7 +9,7 @@ As we could expect, sending campaign emails takes the most time. Sender componen
 Here we can see the architecture of Sender component:
 
 <p align="center">
-    <img src="img/master-worker.png" alt="master-worker-img" width="80%"/>
+    <img src="img/centralized-sender.png" alt="centralized-sender-img" width="80%"/>
 </p>
 
 Here we can see the design of MySQL mailtrain database:
@@ -85,7 +85,7 @@ SMTP server which doesn't negatively affect performance and availability.
 To solve the first bottleneck we need to create a cloud and enable horizontal scaling for workers as we can see on the diagram below. When we allocate enough workers on enough amount of computers then sending emails speeds up rapidly.
 
 <p align="center">
-    <img src="img/distributed-master-worker.png" alt="distributed-master-worker-img" width="80%"/>
+    <img src="img/distributed-sender.png" alt="distributed-sender-img" width="80%"/>
 </p>
 
 **High-availability solution**:
@@ -108,20 +108,10 @@ The non-high-available section contains all other services which do not run in t
 To solve the second bottleneck we need to make a distributed database for too big tables because queries to these tables take the most time. From the previous analysis, we know that it includes tables (campaign_messages, subscription__i and queued). There are also a lot of small tables to which there are often sent queries (permissions, shares, settings, files, ...) but it takes a negligible amount of time. So it will stay at the centralized MySQL database but as we said in the previous solution when we need some of these data we will request it from the sender master at once and store it in worker partial database as temporary data. After sending all worker emails, he will delete these temporary data. We will use MongoDB for horizontal scaling of our database.
 
 <p align="center">
-    <img src="img/shard.png" alt="shard-img" width="20%" height="400"/>
+    <img src="img/distributed-database.png" alt="distributed-database-img" width="20%" height="400"/>
 </p>
 
 Each worker's shard contains collections made from MySQL tables(campaign_messages, subscription__i and queued) and temporary data which are needed for sending emails in this shard.
-
-**High-availability solution**:
-
-We have to also ensure high-availability in the situation when some worker crashes. For ensuring high-availability in this situation each worker has to have also replicated data from other workers.
-
-<p align="center">
-    <img src="img/distributed-database.png" alt="distributed-database-img" width="80%"/>
-</p>
-
-As we can see from the diagram, in the best state worker_i contains his primary shard and also replicated shard from the worker_i-1. We always want to be in a state when for each worker we have primary shard and also replicated shard which runs on some alive worker. For ensuring this, in the situation when worker_i crashes then the next alive worker (we can call him worker_j) has to send replicated data of worker_i to the next alive worker of worker_j (we can call him worker_k) and starts to send emails also for worker_i. When worker_i starts to run then worker_j has to stop sending emails for worker_i, sends him his updated shard, and also sends a message to worker_k he can delete replicated shard of worker_i.
 ### Distributed sending attachments
 
 **High-performance solution**:

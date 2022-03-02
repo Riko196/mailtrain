@@ -75,13 +75,26 @@ function _addDkimKeys(transport, mail) {
     }
 }
 
-
+const workerId = Number.parseInt(process.argv[2]);
+let sendingTimes = [];
+let counters = [];
+for (let i = 0; i < config.queue.processes; i++) {
+    sendingTimes.push(0);
+    counters.push(0);
+}
 async function _sendMail(transport, mail, template) {
+    const start = new Date().getTime();
     _addDkimKeys(transport, mail);
 
     try {
-        return await transport.sendMailAsync(mail);
 
+        const result = await transport.sendMailAsync(mail);
+        const end = new Date().getTime();
+        sendingTimes[workerId] += end - start;
+        counters[workerId]++;
+        if (counters[workerId] >= 5000)
+            console.log('Sending email took ' + sendingTimes[workerId] / 1000 + ' ' + counters[workerId] + ' ' + workerId);
+        return result;
     } catch (err) {
         if ( (err.responseCode && err.responseCode >= 400 && err.responseCode < 500) ||
             (err.code === 'ECONNECTION' && err.errno === 'ECONNREFUSED')

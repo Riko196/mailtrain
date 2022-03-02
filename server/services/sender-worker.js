@@ -15,7 +15,16 @@ const MessageType = messageSender.MessageType;
 const workerId = Number.parseInt(process.argv[2]);
 let running = false;
 
+let sendingTimes = [];
+let counters = [];
+for (let i = 0; i < config.queue.processes; i++) {
+    sendingTimes.push(0);
+    counters.push(0);
+}
+
 async function processCampaignMessages(campaignId, messages) {
+    counters[workerId] += messages.length
+    const start = new Date().getTime();
     if (running) {
         log.error('Senders', `Worker ${workerId} assigned work while working`);
         return;
@@ -55,6 +64,10 @@ async function processCampaignMessages(campaignId, messages) {
     running = false;
 
     sendToMaster('messages-processed', { withErrors });
+    const end = new Date().getTime();
+    sendingTimes[workerId] += end - start;
+    if (counters[workerId] >= 5000 / sendingTimes.length)
+        console.log('Processed campaign messages with worker' + workerId + ' with time ' + sendingTimes[workerId] / 1000 + ' ' + counters[workerId] + ' ' + counters.length);
 }
 
 async function processQueuedMessages(sendConfigurationId, messages) {

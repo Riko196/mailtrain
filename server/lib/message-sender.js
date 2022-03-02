@@ -34,7 +34,14 @@ const MessageType = {
     API_TRANSACTIONAL: 4
 
 };
-
+let initTime = 0;
+let sendMessageTime = 0;
+let isBlacklistedTime = 0;
+let _getMessageTime = 0;
+let getByIdTime = 0;
+let sendRegularCampaignMessageTime = 0;
+let counter = 0;
+const workerId = Number.parseInt(process.argv[2]);
 class MessageSender {
     constructor() {
     }
@@ -59,6 +66,7 @@ class MessageSender {
         - subject
      */
     async _init(settings) {
+        const start = new Date().getTime();
         this.type = settings.type;
 
         this.listsById = new Map(); // listId -> list
@@ -181,9 +189,14 @@ class MessageSender {
                 enforce(false);
             }
         });
+        const end = new Date().getTime();
+        initTime += end - start;
+        if (counter >= 4900)
+            console.log('Init email took ' + initTime / 1000);
     }
 
     async _getMessage(mergeTags, list, subscriptionGrouped, replaceDataImgs) {
+        const start = new Date().getTime();
         let html = '';
         let text = '';
         let renderTags = false;
@@ -246,6 +259,10 @@ class MessageSender {
                     path: dataUri,
                     cid
                 });
+                const end = new Date().getTime();
+                _getMessageTime += end - start;
+                if (counter >= 4900)
+                    console.log('_getMessage took ' + _getMessageTime / 1000);
                 return prefix + 'cid:' + cid;
             });
         }
@@ -268,6 +285,10 @@ class MessageSender {
             text = tools.formatCampaignTemplate(text, this.tagLanguage, mergeTags, false, campaign, this.listsById, list, subscriptionGrouped)
         }
 
+        const end = new Date().getTime();
+        _getMessageTime += end - start;
+        if (counter >= 4900)
+            console.log('_getMessage took ' + _getMessageTime / 1000);
         return {
             html,
             text,
@@ -311,6 +332,7 @@ class MessageSender {
         - mergeTags [used only when campaign / html+text is provided]
      */
     async _sendMessage(subData) {
+        const start = new Date().getTime();
         let to, email;
         let envelope = false;
         let sender = false;
@@ -330,6 +352,7 @@ class MessageSender {
         if (subData.listId) {
             let listId;
 
+            const startGetById = new Date().getTime();
             if (subData.subscriptionId) {
                 listId = subData.listId;
                 subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subData.subscriptionId);
@@ -339,7 +362,10 @@ class MessageSender {
             email = subscriptionGrouped.email;
 
             const flds = this.listsFieldsGrouped.get(list.id);
-
+            const endGetById = new Date().getTime();
+            getByIdTime += endGetById - startGetById;
+            if (counter >= 4900)
+                console.log('getById took ' + getByIdTime / 1000);
             if (!mergeTags) {
                 mergeTags = fields.getMergeTags(flds, subscriptionGrouped, this._getExtraTags());
             }
@@ -416,15 +442,18 @@ class MessageSender {
             encryptionKeys = subData.encryptionKeys;
             message = await this._getMessage(mergeTags);
         }
-
+        const startIsBlacklisted = new Date().getTime();
         if (await blacklist.isBlacklisted(email)) {
             return;
         }
 
+
         const mailer = await mailers.getOrCreateMailer(sendConfiguration.id);
-
+        const endIsBlacklisted = new Date().getTime();
+        isBlacklistedTime += endIsBlacklisted - startIsBlacklisted;
+        if (counter >= 4990)
+            console.log('isBlacklisted took ' + isBlacklistedTime / 1000);
         await mailer.throttleWait();
-
         const getOverridable = key => {
             if (campaign && sendConfiguration[key + '_overridable'] && campaign[key + '_override'] !== null) {
                 return campaign[key + '_override'] || '';
@@ -514,11 +543,16 @@ class MessageSender {
             subscriptionGrouped,
             email
         };
-
+        const end = new Date().getTime();
+        sendMessageTime += end - start;
+        counter++;
+        if (counter >= 5000)
+            console.log('sendMessage took ' + sendMessageTime / 1000);
         return result;
     }
 
     async sendRegularCampaignMessage(campaignMessage) {
+        const start = new Date().getTime();
         enforce(this.type === MessageType.REGULAR);
 
         // We set the campaign_message to SENT before the message is actually sent. This is to avoid multiple delivery
@@ -564,6 +598,10 @@ class MessageSender {
             });
 
         await knex('campaigns').where('id', this.campaign.id).increment('delivered');
+        const end = new Date().getTime();
+        sendRegularCampaignMessageTime += end - start;
+        if (counter >= 5000)
+            console.log('sendRegularCampaignMessage took ' + sendRegularCampaignMessageTime / 1000);
     }
 }
 

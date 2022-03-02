@@ -1,0 +1,49 @@
+init:
+    await campaigns.rawGetByTx(tx, 'cid', settings.campaignCid) || await campaigns.rawGetByTx(tx, 'id', settings.campaignId);
+    await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), settings.sendConfigurationId, false, true)
+        || await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), this.campaign.send_configuration, false, true);
+        || await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), settings.sendConfigurationId, false, true);
+
+    await lists.getByIdTx(tx, contextHelpers.getAdminContext(), settings.listId) + await fields.listGroupedTx(tx, list.id);
+        || await lists.getByCidTx(tx, contextHelpers.getAdminContext(), settings.listCid) + await fields.listGroupedTx(tx, list.id);
+        || await lists.getByIdTx(tx, contextHelpers.getAdminContext(), listSpec.list) + await fields.listGroupedTx(tx, list.id);
+
+    await files.listTx(tx, contextHelpers.getAdminContext(), 'campaign', 'attachment', this.campaign.id);
+    await templates.getByIdTx(tx, contextHelpers.getAdminContext(), this.campaign.data.sourceTemplate, false);
+
+sendRegularCampaignMessage:
+    await knex('campaign_messages').where({id: campaignMessage.id})
+        .update({status: CampaignMessageStatus.SENT,updated: new Date()});
+
+    await knex('campaign_messages').where({id: campaignMessage.id})
+            .update({
+                response: result.response,
+                response_id: result.responseId,
+                updated: new Date()
+            });
+    await knex('campaigns').where('id', this.campaign.id).increment('delivered');
+
+sendQueuedMessage:
+    await knex('queued')
+        .where({id: queuedMessage.id})
+        .del();
+
+dropQueuedMessage:
+    await knex('queued')
+        .where({id: queuedMessage.id})
+        .del();
+
+_sendMessage:
+    await subscriptions.getById(contextHelpers.getAdminContext(), listId, subData.subscriptionId);
+    await blacklist.isBlacklisted(email)
+
+_getMessage:
+    await links.updateLinks(html, this.tagLanguage, mergeTags, campaign, this.listsById, list, subscriptionGrouped);
+
+getOrCreateMailer:
+    await sendConfigurations.getSystemSendConfiguration()
+        || await sendConfigurations.getById(contextHelpers.getAdminContext(), sendConfigurationId, false, true);
+
+createTransport:
+    await settings.get(contextHelpers.getAdminContext(), ['pgpPrivateKey', 'pgpPassphrase']);
+

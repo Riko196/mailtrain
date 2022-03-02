@@ -1,5 +1,5 @@
 #!/bin/sh
-DIAGRAMS="distributed-database distributed-master-worker mailtrain-database master-worker shard"
+DIAGRAMS="distributed-database distributed-sender mailtrain-database centralized-sender"
 
 rm ./img/*
 

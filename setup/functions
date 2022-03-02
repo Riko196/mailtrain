@@ -219,17 +219,17 @@ function installMailtrain {
 
     mysqlPassword=`pwgen 12 -1`
     mysqlRoPassword=`pwgen 12 -1`
-    
+
     # Setup MySQL user for Mailtrain
     mysql -u root -e "CREATE USER 'mailtrain'@'localhost' IDENTIFIED BY '$mysqlPassword';"
     mysql -u root -e "GRANT ALL PRIVILEGES ON mailtrain.* TO 'mailtrain'@'localhost';"
     mysql -u root -e "CREATE USER 'mailtrain_ro'@'localhost' IDENTIFIED BY '$mysqlRoPassword';"
     mysql -u root -e "GRANT SELECT ON mailtrain.* TO 'mailtrain_ro'@'localhost';"
     mysql -u mailtrain --password="$mysqlPassword" -e "CREATE DATABASE mailtrain CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
-    
+
     # Add new user for the mailtrain daemon to run as
     useradd mailtrain || true
-    
+
     # Setup installation configuration
     cat > server/config/production.yaml <<EOT
 user: mailtrain
@@ -262,7 +262,7 @@ builtinZoneMTA:
 queue:
   processes: 5
 EOT
-    
+
     cat >> server/services/workers/reports/config/production.yaml <<EOT
 log:
   level: warn
@@ -275,7 +275,7 @@ EOT
     reinstallAllModules
 
     (cd client && npm run build)
-    
+
     chown -R mailtrain:mailtrain .
     chmod o-rwx server/config
 }
@@ -352,7 +352,7 @@ function installHttpd {
                 done
             fi
             ;;
-	    
+
     esac
 }
 

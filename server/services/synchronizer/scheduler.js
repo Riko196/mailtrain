@@ -1,14 +1,33 @@
 const knex = require('../../lib/knex');
+const log = require('../../lib/log');
+const campaigns = require('../../models/campaigns');
+const { CampaignStatus, CampaignType, CampaignActivityType } = require('../../../shared/campaigns');
 
-/** 
- * Scheduler which periodically checks all kinds of campaigns and prepare them for next processing. 
+const WorkAssignmentType = {
+    CAMPAIGN: 0,
+    QUEUED: 1
+};
+
+/**
+ * Scheduler which periodically checks all kinds of campaigns and prepare them for next processing.
  */
 class Scheduler {
-    constructor() {
+    this.CHECK_PERIOD = 30 * 1000;
+
+    constructor(synchronizingCampaigns) {
+        this.synchronizingCampaigns = synchronizingCampaigns;
+        this.queuedSchedulerRunning = false;
+        this.campaignSchedulerRunning = false;
+
+        /* Start periodically schedule every needed campaigns */
+        this.periodicCheck();
+    }
+
+    periodicCheck() {
         /* noinspection JSIgnoredPromiseFromCall */
         this.scheduleCheck();
 
-        setTimeout(periodicCheck, checkPeriod);
+        setTimeout(this.periodicCheck, this.CHECK_PERIOD);
     }
 
     scheduleCheck() {
@@ -20,11 +39,11 @@ class Scheduler {
     }
 
     async scheduleQueued() {
-        if (queuedSchedulerRunning) {
+        if (this.queuedSchedulerRunning) {
             return;
         }
 
-        queuedSchedulerRunning = true;
+        this.queuedSchedulerRunning = true;
 
         try {
             const sendConfigurationsIdsInProcessing = [...sendConfigurationMessageQueue.keys()];
@@ -63,7 +82,7 @@ class Scheduler {
             log.verbose(err.stack);
         }
 
-        queuedSchedulerRunning = false;
+        this.queuedSchedulerRunning = false;
     }
 
     async prepareQueuedBySendConfiguration(sendConfigurationId) {
@@ -121,7 +140,7 @@ class Scheduler {
                     }
                 }
 
-                const expirationThresholds = getExpirationThresholds();
+                const expirationThresholds = this.getExpirationThresholds();
                 const expirationCounters = {};
                 for (const type in expirationThresholds) {
                     expirationCounters[type] = 0;
@@ -156,11 +175,11 @@ class Scheduler {
     }
 
     async scheduleCampaigns() {
-        if (campaignSchedulerRunning) {
+        if (this.campaignSchedulerRunning) {
             return;
         }
 
-        campaignSchedulerRunning = true;
+        this.campaignSchedulerRunning = true;
 
         try {
             // Finish old campaigns
@@ -196,8 +215,13 @@ class Scheduler {
                         .first();
 
                     if (scheduledCampaign) {
-                        await tx('campaigns').where('id', scheduledCampaign.id).update({ status: CampaignStatus.SENDING });
-                        await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, scheduledCampaign.id, { status: CampaignStatus.SENDING });
+                        await tx('campaigns')
+                            .where('id', scheduledCampaign.id)
+                            .update({ status: CampaignStatus.SYNCHRONIZING});
+                        await activityLog.logEntityActivity('campaign',
+                            CampaignActivityType.STATUS_CHANGE,
+                            scheduledCampaign.id,
+                            { status: CampaignStatus.SYNCHRONIZING });
                         campaignId = scheduledCampaign.id;
                     }
                 });
@@ -214,7 +238,7 @@ class Scheduler {
             log.verbose(err.stack);
         }
 
-        campaignSchedulerRunning = false;
+        this.campaignSchedulerRunning = false;
     }
 
     async prepareCampaign(campaignId) {
@@ -257,10 +281,10 @@ class Scheduler {
 
                 sendConfigurationIdByCampaignId.set(campaign.id, campaign.send_configuration);
 
-                if (isSendConfigurationPostponed(campaign.send_configuration)) {
+                if (this.isSendConfigurationPostponed(campaign.send_configuration)) {
                     /* Postpone campaign if its send configuration is problematic */
                     return await finish(CampaignStatus.SCHEDULED);
-                }   
+                }
 
                 /* TODO optimize this operation */
                 preparedCampaignMessages = await knex('campaign_messages')
@@ -277,7 +301,7 @@ class Scheduler {
                     }
                 }
 
-                notifier.notify('workAvailable');
+                this.synchronizingCampaigns.push(campaignId);
             }
         } catch (err) {
             log.error('Senders', `Scheduling campaign ${campaignId} failed with error: ${err.message}`);
@@ -287,10 +311,10 @@ class Scheduler {
 
     isSendConfigurationPostponed(sendConfigurationId) {
         const now = Date.now();
-        const sendConfigurationStatus = getSendConfigurationStatus(sendConfigurationId);
+        const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
         return sendConfigurationStatus.postponeTill > now;
     }
-    
+
     getSendConfigurationStatus(sendConfigurationId) {
         let status = sendConfigurationStatuses.get(sendConfigurationId);
         if (!status) {
@@ -298,30 +322,30 @@ class Scheduler {
                 retryCount: 0,
                 postponeTill: 0
             };
-    
+
             sendConfigurationStatuses.set(sendConfigurationId, status);
         }
-    
+
         return status;
     }
 
     getPostponedSendConfigurationIds() {
         const result = [];
         const now = Date.now();
-    
+
         for (const entry of sendConfigurationStatuses.entries()) {
             if (entry[1].postponeTill > now) {
                 result.push(entry[0]);
             }
         }
-    
+
         return result;
     }
-    
+
 
     getExpirationThresholds() {
         const now = Date.now();
-    
+
         return {
             [MessageType.TRIGGERED]: {
                 threshold: now - config.queue.retention.triggered * 1000,

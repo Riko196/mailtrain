@@ -1,10 +1,22 @@
+const campaigns = require('../../models/campaigns');
+const sendConfigurations = require('../../models/send-configurations');
+const lists = require('../../models/lists');
+const fields = require('../../models/fields');
+const files = require('../../models/files');
+const templates = require('../../models/templates');
+const subscriptions = require('../../models/subscriptions');
+const settings = require('../../models/settings');
+const contextHelpers = require('../../lib/context-helpers');
+const knex = require('../../lib/knex');
+const { enforce } = require('../../lib/helpers');
 
 /**
  * DataCollector collects all needed data for processing one specific campaign from MySQL centralized database. Used by Synchronizer.
  */
 class DataCollector {
     async collectData(query) {
-        this = {};
+        /* Result data */
+        this.data = {};
         this.type = query.type;
         this.listsById = new Map(); // listId -> list
         this.listsByCid = new Map(); // listCid -> list
@@ -26,7 +38,7 @@ class DataCollector {
             }
 
             await this.collectAttachments(tx, query);
-            await this.collectTemplates(tx, query);
+            await this.collectTemplates(tx, query);f
         });
 
         await this.collectSubscribers();
@@ -133,7 +145,8 @@ class DataCollector {
     async collectSubscribers() {
         this.subscribers = {};
         for (const listId of Object.keys(this.listsById)) {
-            this.subscribers[getSubscriptionTableName(listId)] = await subscriptions.list(contextHelpers.getAdminContext(), listId, false, null, null);
+            this.subscribers[subscriptions.getSubscriptionTableName(listId)] =
+                await subscriptions.list(contextHelpers.getAdminContext(), listId, false, null, null);
         }
     }
 

@@ -39,8 +39,9 @@ const CampaignStatus = {
     // For campaign types: NORMAL, RSS_ENTRY
     SENDING: 7,
     PAUSING: 8,
+    SYNCHRONIZING: 9,
 
-    MAX: 9
+    MAX: 10
 };
 
 

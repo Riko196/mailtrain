@@ -66,9 +66,8 @@ class MessageSender {
         - subject
      */
     async _init(settings) {
-        const start = new Date().getTime();
         this.type = settings.type;
-
+        console.log('SETTINGS: ' + JSON.stringify(settings, null, 4));
         this.listsById = new Map(); // listId -> list
         this.listsByCid = new Map(); // listCid -> list
         this.listsFieldsGrouped = new Map(); // listId -> fieldsGrouped
@@ -84,7 +83,7 @@ class MessageSender {
                 } else if (settings.campaignId) {
                     this.campaign = await campaigns.rawGetByTx(tx, 'id', settings.campaignId);
                 }
-
+                console.log('CAMPAIGN: ' + JSON.stringify(this.campaign, null, 4));
                 if (settings.sendConfigurationId) {
                     this.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), settings.sendConfigurationId, false, true);
                 } else if (this.campaign && this.campaign.send_configuration) {
@@ -92,7 +91,7 @@ class MessageSender {
                 } else {
                     enforce(false);
                 }
-
+                console.log('SEND CONFIGURATION: ' + JSON.stringify(this.sendConfiguration, null, 4));
                 this.useVerp = config.verp.enabled && this.sendConfiguration.verp_hostname;
                 this.useVerpSenderHeader = this.useVerp && !this.sendConfiguration.verp_disable_sender_header;
 
@@ -101,6 +100,7 @@ class MessageSender {
                 // in order to support tags like LINK_PUBLIC_SUBSCRIBE, LIST_ID_<index>, PUBLIC_LIST_ID_<index>
                 if (settings.listId) {
                     const list = await lists.getByIdTx(tx, contextHelpers.getAdminContext(), settings.listId);
+                    console.log('LIST: ' + JSON.stringify(list, null, 4));
                     this.listsById.set(list.id, list);
                     this.listsByCid.set(list.cid, list);
                     this.listsFieldsGrouped.set(list.id, await fields.listGroupedTx(tx, list.id));
@@ -108,6 +108,7 @@ class MessageSender {
 
                 if (settings.listCid && !this.listsByCid.has(settings.listCid)) {
                     const list = await lists.getByCidTx(tx, contextHelpers.getAdminContext(), settings.listCid);
+                    console.log('LIST: ' + JSON.stringify(list, null, 4));
                     this.listsById.set(list.id, list);
                     this.listsByCid.set(list.cid, list);
                     this.listsFieldsGrouped.set(list.id, await fields.listGroupedTx(tx, list.id));
@@ -118,6 +119,7 @@ class MessageSender {
                     for (const listSpec of this.campaign.lists) {
                         if (!this.listsById.has(listSpec.list)) {
                             const list = await lists.getByIdTx(tx, contextHelpers.getAdminContext(), listSpec.list);
+                            console.log('LIST: ' + JSON.stringify(list, null, 4));
                             this.listsById.set(list.id, list);
                             this.listsByCid.set(list.cid, list);
                             this.listsFieldsGrouped.set(list.id, await fields.listGroupedTx(tx, list.id));
@@ -189,14 +191,10 @@ class MessageSender {
                 enforce(false);
             }
         });
-        const end = new Date().getTime();
-        initTime += end - start;
-        if (counter >= 4900)
-            console.log('Init email took ' + initTime / 1000);
+        console.log('OBJECT: ' + JSON.stringify(this, null, 4));
     }
 
     async _getMessage(mergeTags, list, subscriptionGrouped, replaceDataImgs) {
-        const start = new Date().getTime();
         let html = '';
         let text = '';
         let renderTags = false;
@@ -259,10 +257,7 @@ class MessageSender {
                     path: dataUri,
                     cid
                 });
-                const end = new Date().getTime();
-                _getMessageTime += end - start;
-                if (counter >= 4900)
-                    console.log('_getMessage took ' + _getMessageTime / 1000);
+
                 return prefix + 'cid:' + cid;
             });
         }
@@ -271,6 +266,7 @@ class MessageSender {
         if (renderTags) {
             if (campaign) {
                 html = await links.updateLinks(html, this.tagLanguage, mergeTags, campaign, this.listsById, list, subscriptionGrouped);
+                console.log('LINK: ' + JSON.stringify(html, null, 4));
             }
 
             // When no list and subscriptionGrouped is provided, formatCampaignTemplate works the same way as formatTemplate
@@ -282,13 +278,9 @@ class MessageSender {
             text = htmlToText.fromString(html, {wordwrap: 130});
         } else {
             // When no list and subscriptionGrouped is provided, formatCampaignTemplate works the same way as formatTemplate
-            text = tools.formatCampaignTemplate(text, this.tagLanguage, mergeTags, false, campaign, this.listsById, list, subscriptionGrouped)
+            text = tools.formatCampaignTemplate(text, this.tagLanguage, mergeTags, false, campaign, this.listsById, list, subscriptionGrouped);
         }
 
-        const end = new Date().getTime();
-        _getMessageTime += end - start;
-        if (counter >= 4900)
-            console.log('_getMessage took ' + _getMessageTime / 1000);
         return {
             html,
             text,
@@ -301,13 +293,13 @@ class MessageSender {
 
         if (this.rssEntry) {
             const rssEntry = this.rssEntry;
-            tags['RSS_ENTRY_TITLE'] = rssEntry.title;
-            tags['RSS_ENTRY_DATE'] = rssEntry.date;
-            tags['RSS_ENTRY_LINK'] = rssEntry.link;
-            tags['RSS_ENTRY_CONTENT'] = rssEntry.content;
-            tags['RSS_ENTRY_SUMMARY'] = rssEntry.summary;
-            tags['RSS_ENTRY_IMAGE_URL'] = rssEntry.imageUrl;
-            tags['RSS_ENTRY_CUSTOM_TAGS'] = rssEntry.customTags;
+            tags.RSS_ENTRY_TITLE = rssEntry.title;
+            tags.RSS_ENTRY_DATE = rssEntry.date;
+            tags.RSS_ENTRY_LINK = rssEntry.link;
+            tags.RSS_ENTRY_CONTENT = rssEntry.content;
+            tags.RSS_ENTRY_SUMMARY = rssEntry.summary;
+            tags.RSS_ENTRY_IMAGE_URL = rssEntry.imageUrl;
+            tags.RSS_ENTRY_CUSTOM_TAGS = rssEntry.customTags;
         }
 
         return tags;
@@ -332,7 +324,6 @@ class MessageSender {
         - mergeTags [used only when campaign / html+text is provided]
      */
     async _sendMessage(subData) {
-        const start = new Date().getTime();
         let to, email;
         let envelope = false;
         let sender = false;
@@ -356,16 +347,14 @@ class MessageSender {
             if (subData.subscriptionId) {
                 listId = subData.listId;
                 subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subData.subscriptionId);
+                console.log('SUBSCRIBER: ' + JSON.stringify(subscriptionGrouped, null, 4));
             }
 
             list = this.listsById.get(listId);
             email = subscriptionGrouped.email;
 
             const flds = this.listsFieldsGrouped.get(list.id);
-            const endGetById = new Date().getTime();
-            getByIdTime += endGetById - startGetById;
-            if (counter >= 4900)
-                console.log('getById took ' + getByIdTime / 1000);
+
             if (!mergeTags) {
                 mergeTags = fields.getMergeTags(flds, subscriptionGrouped, this._getExtraTags());
             }
@@ -442,17 +431,14 @@ class MessageSender {
             encryptionKeys = subData.encryptionKeys;
             message = await this._getMessage(mergeTags);
         }
-        const startIsBlacklisted = new Date().getTime();
+
         if (await blacklist.isBlacklisted(email)) {
             return;
         }
 
 
         const mailer = await mailers.getOrCreateMailer(sendConfiguration.id);
-        const endIsBlacklisted = new Date().getTime();
-        isBlacklistedTime += endIsBlacklisted - startIsBlacklisted;
-        if (counter >= 4990)
-            console.log('isBlacklisted took ' + isBlacklistedTime / 1000);
+
         await mailer.throttleWait();
         const getOverridable = key => {
             if (campaign && sendConfiguration[key + '_overridable'] && campaign[key + '_override'] !== null) {
@@ -538,21 +524,16 @@ class MessageSender {
 
         const result = {
             response,
-            responseId: responseId,
+            responseId,
             list,
             subscriptionGrouped,
             email
         };
-        const end = new Date().getTime();
-        sendMessageTime += end - start;
-        counter++;
-        if (counter >= 5000)
-            console.log('sendMessage took ' + sendMessageTime / 1000);
+
         return result;
     }
 
     async sendRegularCampaignMessage(campaignMessage) {
-        const start = new Date().getTime();
         enforce(this.type === MessageType.REGULAR);
 
         // We set the campaign_message to SENT before the message is actually sent. This is to avoid multiple delivery
@@ -569,19 +550,19 @@ class MessageSender {
             result = await this._sendMessage({listId: campaignMessage.list, subscriptionId: campaignMessage.subscription});
         } catch (err) {
             if (err.campaignMessageErrorType === CampaignMessageErrorType.PERMANENT) {
-              await knex('campaign_messages')
-                .where({id: campaignMessage.id})
-                .update({
-                  status: CampaignMessageStatus.FAILED,
-                  updated: new Date()
-                });
+                await knex('campaign_messages')
+                    .where({id: campaignMessage.id})
+                    .update({
+                        status: CampaignMessageStatus.FAILED,
+                        updated: new Date()
+                    });
             } else {
-              await knex('campaign_messages')
-                .where({id: campaignMessage.id})
-                .update({
-                    status: CampaignMessageStatus.SCHEDULED,
-                    updated: new Date()
-                });
+                await knex('campaign_messages')
+                    .where({id: campaignMessage.id})
+                    .update({
+                        status: CampaignMessageStatus.SCHEDULED,
+                        updated: new Date()
+                    });
             }
             throw err;
         }
@@ -598,10 +579,6 @@ class MessageSender {
             });
 
         await knex('campaigns').where('id', this.campaign.id).increment('delivered');
-        const end = new Date().getTime();
-        sendRegularCampaignMessageTime += end - start;
-        if (counter >= 5000)
-            console.log('sendRegularCampaignMessage took ' + sendRegularCampaignMessageTime / 1000);
     }
 }
 

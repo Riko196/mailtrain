@@ -14,8 +14,13 @@ const WorkAssignmentType = {
 class Scheduler {
     this.CHECK_PERIOD = 30 * 1000;
 
-    constructor(synchronizingCampaigns) {
+    constructor(synchronizingCampaigns, notifier, sendConfigurationStatuses) {
         this.synchronizingCampaigns = synchronizingCampaigns;
+        this.notifier = notifier;
+        /* sendConfigurationId -> {retryCount, postponeTill} */
+        this.sendConfigurationStatuses = sendConfigurationStatuses;
+        this.sendConfigurationIdByCampaignId = new Map(); // campaignId -> sendConfigurationId
+        /* Mutexes */
         this.queuedSchedulerRunning = false;
         this.campaignSchedulerRunning = false;
 

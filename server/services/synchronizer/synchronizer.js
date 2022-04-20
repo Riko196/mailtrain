@@ -1,3 +1,5 @@
+const mongodb = require('../../lib/mongodb');
+const { MessageType } = require('../../../shared/messages');
 
 /**
  * The main component for synchronizing between non-high-available centralized and high-available distributed components. It initializes scheduler and
@@ -26,20 +28,21 @@ class Synchronizer {
 
 
         while (true) {
-            const campaignId = await this.getSynchronizingCampaign();
+            const campaignId = await this.selectNextTask();
 
             if (campaignId) {
-                const data = this.dataCollector.collectData(campaignId);
+                /* TODO implement data collecting also for queue messages */
+                const campaignData = this.dataCollector.collectData({ type: MessageType.REGULAR, campaignId });
 
-                await this.sendDataToMongoDB(data);
+                await this.sendDataToMongoDB(campaignData);
             } else {
-                await notifier.waitFor('taskAvailable');
+                await this.notifier.waitFor('taskAvailable');
             }
         }
     }
 
     async sendDataToMongoDB(data) {
-
+        mongodb.collection('tasks').insertOne(campaignData);
     }
 
     isSendConfigurationPostponed(sendConfigurationId) {

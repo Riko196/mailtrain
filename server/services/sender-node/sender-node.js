@@ -1,37 +1,64 @@
-const { MongoClient } = require('mongodb');
-const config = require('../../lib/config');
+const mongodb = require('../../lib/mongodb');
+const log = require('../../lib/log');
+const activityLog = require('../../lib/activity-log');
+const MailMaker = require('../../lib/sender/message-sender');
 
 /**
  * The main component of distributed system for sending email.
  */
  class SenderNode {
     constructor() {
-        this.client = {};
     }
 
     async senderNodeLoop() {
-        const uri = config.mongodb.uri;
-        this.client = new MongoClient(uri);
-
         try {
-            // Connect to the MongoDB cluster
-            await this.client.connect();
-
             // Make the appropriate DB calls
             setInterval(async () => {
-                await this.listDatabases();
+                await this.listTasks();
             }, 5000);
         } catch (e) {
             console.error(e);
         }
     }
 
-    async listDatabases(){
-        const databasesList = await this.client.db().admin().listDatabases();
+    async listTasks(){
+        const taskList = await mongodb.collection('tasks');
 
-        console.log("Databases:");
-        databasesList.databases.forEach(db => console.log(` - ${db.name}`));
+        console.log('Tasks:');
+        taskList.forEach(task => console.log(` - ${task}\n\n\n`));
     };
+
+    async processCampaignMessages(campaignId, messages) {
+        const mailMaker = new MailMaker();
+        await mailMaker.initByCampaignId(campaignId);
+
+        let withErrors = false;
+
+        for (const campaignMessage of messages) {
+            try {
+                await cs.sendRegularCampaignMessage(campaignMessage);
+
+                await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
+
+                log.verbose('Senders', 'Message sent and status updated for %s:%s', campaignMessage.list, campaignMessage.subscription);
+            } catch (err) {
+
+                if (err instanceof mailers.SendConfigurationError) {
+                    log.error('Senders', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${err.message}. Will retry the message if within retention interval.`);
+                    withErrors = true;
+                    break;
+                } else {
+                    log.error('Senders', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${err.message}.`);
+
+                    log.verbose(err.code);
+                    log.verbose(err.response);
+                    log.verbose(err.responseCode);
+                    log.verbose(err.stack);
+                }
+            }
+        }
+
+    }
 }
 
 new SenderNode().senderNodeLoop();

@@ -103,44 +103,28 @@ async function countLink(remoteIp, userAgent, campaignCid, listCid, subscription
     });
 }
 
-async function addOrGet(campaignId, url) {
-    const link = await knex('links').select(['id', 'cid']).where({
-        campaign: campaignId,
-        url
-    }).first();
+function addOrGet(campaignId, url, links) {
+    const link = links.find(link => link.campaign === campaignId && link.url === url);
 
     if (!link) {
         let cid = shortid.generate();
 
-        try {
-            const ids = await knex('links').insert({
-                campaign: campaignId,
-                cid,
-                url
-            });
+        links.push({
+            campaign: campaignId,
+            cid,
+            url
+        });
 
-            return {
-                id: ids[0],
-                cid
-            };
-        } catch (err) {
-            if (err.code === 'ER_DUP_ENTRY') {
-                const link = await knex('links').select(['id', 'cid']).where({
-                    campaign: campaignId,
-                    url
-                }).first();
-
-                enforce(link);
-                return link;
-            }
-        }
-
+        return {
+            id: links.length - 1,
+            cid
+        };
     } else {
         return link;
     }
 }
 
-async function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById, list, subscription) {
+function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById, list, subscription, links) {
     if ((campaign.open_tracking_disabled && campaign.click_tracking_disabled) || !source || !source.trim()) {
         // tracking is disabled, do not modify the message
         return source;
@@ -174,7 +158,7 @@ async function updateLinks(source, tagLanguage, mergeTags, campaign, campaignLis
         for (const url of urlsToBeReplaced) {
             // url might include variables, need to rewrite those just as we do with message content
             const expanedUrl = encodeURI(tools.formatCampaignTemplate(url, tagLanguage, mergeTags, false, campaign, campaignListsById, list, subscription));
-            const link = await addOrGet(campaign.id, expanedUrl);
+            const link = addOrGet(campaign.id, expanedUrl, links);
             urls.set(url, link);
         }
 

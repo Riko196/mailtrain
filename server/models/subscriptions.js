@@ -909,3 +909,4 @@ module.exports.updateManaged = updateManaged;
 module.exports.getListsWithEmail = getListsWithEmail;
 module.exports.changeStatusTx = changeStatusTx;
 module.exports.purgeSensitiveData = purgeSensitiveData;
+module.exports.groupSubscription = groupSubscription;

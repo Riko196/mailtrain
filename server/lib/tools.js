@@ -239,7 +239,7 @@ function getMessageLinks(campaign, campaignListsById, list, subscription) {
                 let cpgListIdx = 0;
                 let cpgPublicListIdx = 0;
                 for (const cpgListSpec of campaign.lists) {
-                    const cpgList = campaignListsById.get(cpgListSpec.list);
+                    const cpgList = campaignListsById[cpgListSpec.list];
 
                     result[`LIST_ID_${cpgListIdx}`] = cpgList.cid;
                     cpgListIdx += 1;

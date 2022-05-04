@@ -41,7 +41,7 @@ const CampaignStatus = {
     PAUSING: 8,
     SYNCHRONIZING: 9,
 
-    MAX: 10
+    MAX: 9
 };
 
 

@@ -8,10 +8,8 @@ const { enforce, filterObject } = require('../lib/helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const shares = require('./shares');
 const namespaceHelpers = require('../lib/namespace-helpers');
-const {MailerType, getSystemSendConfigurationId} = require('../../shared/send-configurations');
+const { MailerType, getSystemSendConfigurationId } = require('../../shared/send-configurations');
 const contextHelpers = require('../lib/context-helpers');
-const mailers = require('../lib/mailers');
-const senders = require('../lib/senders');
 const dependencyHelpers = require('../lib/dependency-helpers');
 
 const allowedKeys = new Set(['name', 'description', 'from_email', 'from_email_overridable', 'from_name', 'from_name_overridable', 'reply_to', 'reply_to_overridable', 'x_mailer', 'verp_hostname', 'verp_disable_sender_header', 'mailer_type', 'mailer_settings', 'namespace']);
@@ -161,8 +159,8 @@ async function updateWithConsistencyCheck(context, entity) {
 
         await shares.rebuildPermissionsTx(tx, { entityTypeId: 'sendConfiguration', entityId: entity.id });
     });
-
-    mailers.invalidateMailer(entity.id);
+    // TODO Should I call it?
+    // mailers.invalidateMailer(entity.id);
     // TODO Should I call it?
     // senders.reloadConfig(entity.id);
 }

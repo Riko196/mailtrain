@@ -102,7 +102,7 @@ async function getArchivedMessage(campaignCid, listCid, subscriptionCid, setting
     const regularMailMaker = new RegularMailMaker({ type: MessageType.REGULAR, campaignCid, listCid, ...settings });
 
     const campaign = regularMailMaker.campaign;
-    const list = regularMailMaker.listsByCid.[listCid];
+    const list = regularMailMaker.listsByCid[listCid];
 
     const subscriptionGrouped = await subscriptions.getByCid(contextHelpers.getAdminContext(), list.id, subscriptionCid, true, isTest);
 

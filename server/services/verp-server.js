@@ -3,10 +3,10 @@
 const { nodeifyFunction, nodeifyPromise } = require('../lib/nodeify');
 const log = require('../lib/log');
 const config = require('../lib/config');
-const {MailerError} = require('../lib/mailers');
+const { MailerError } = require('../lib/sender/mail-sender/mail-sender');
 const campaigns = require('../models/campaigns');
 const contextHelpers = require('../lib/context-helpers');
-const {CampaignMessageStatus} = require('../../shared/campaigns');
+const { CampaignMessageStatus } = require('../../shared/campaigns');
 const bluebird = require('bluebird');
 
 const BounceHandler = require('bounce-handler').BounceHandler;

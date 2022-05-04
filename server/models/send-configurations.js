@@ -163,7 +163,8 @@ async function updateWithConsistencyCheck(context, entity) {
     });
 
     mailers.invalidateMailer(entity.id);
-    senders.reloadConfig(entity.id);
+    // TODO Should I call it?
+    // senders.reloadConfig(entity.id);
 }
 
 async function remove(context, id) {

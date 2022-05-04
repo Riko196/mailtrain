@@ -112,7 +112,8 @@ async function init() {
 
     await importer.spawn();
     await feedcheck.spawn();
-    await senders.spawn();
+    // TODO set up new Sender
+    // await senders.spawn();
 
     triggers.start();
     gdprCleanup.start();

@@ -25,7 +25,8 @@ function spawn(callback) {
                 log.info('Feed', 'Feedcheck process started');
                 return callback();
             } else if (msg.type === 'entries-added') {
-                senders.scheduleCheck();
+                // TODO Should I call it?
+                // senders.scheduleCheck();
             }
         }
     });

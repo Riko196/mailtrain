@@ -4,7 +4,6 @@ const config = require('../lib/config');
 const process = require('process');
 const log = require('../lib/log');
 const knex = require('../lib/knex');
-const senders = require('../lib/senders');
 const { CampaignType, CampaignStatus, CampaignSource } = require('../../shared/campaigns');
 const campaigns = require('../models/campaigns');
 const contextHelpers = require('../lib/context-helpers');

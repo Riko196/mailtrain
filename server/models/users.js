@@ -12,8 +12,8 @@ const crypto = require('crypto');
 const settings = require('./settings');
 const {getTrustedUrl} = require('../lib/urls');
 const { tUI } = require('../lib/translate');
-const messageSender = require('../lib/message-sender');
-const {getSystemSendConfigurationId} = require('../../shared/send-configurations');
+const { queueSubscriptionMessage } = require('./queued');
+const { getSystemSendConfigurationId } = require('../../shared/send-configurations');
 
 const bluebird = require('bluebird');
 
@@ -317,7 +317,7 @@ async function sendPasswordReset(locale, usernameOrEmail) {
     });
 
     if (user) {
-        await messageSender.queueSubscriptionMessage(
+        await queueSubscriptionMessage(
             getSystemSendConfigurationId(),
             {
                 address: user.email

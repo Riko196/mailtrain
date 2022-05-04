@@ -1,11 +1,11 @@
 'use strict';
 
 const router = require('../lib/router-async').create();
-const messageSender = require('../lib/message-sender');
+const { getArchivedMessage } = require('../models/queued');
 
 
 router.get('/:campaign/:list/:subscription', (req, res, next) => {
-    messageSender.getMessage(req.params.campaign, req.params.list, req.params.subscription)
+    getArchivedMessage(req.params.campaign, req.params.list, req.params.subscription)
         .then(result => {
             const {html} = result;
 

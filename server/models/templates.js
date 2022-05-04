@@ -11,7 +11,7 @@ const files = require('./files');
 const dependencyHelpers = require('../lib/dependency-helpers');
 const {convertFileURLs} = require('../lib/campaign-content');
 const { allTagLanguages } = require('../../shared/templates');
-const messageSender = require('../lib/message-sender');
+const { queueAPITransactionalMessageTx } = require('./queued');
 
 const allowedKeys = new Set(['name', 'description', 'type', 'tag_language', 'data', 'html', 'text', 'namespace']);
 
@@ -169,7 +169,7 @@ async function sendAsTransactionalEmail(context, templateId, sendConfigurationId
 
     await knex.transaction(async tx => {
 		for (const email of emails) {
-			await messageSender.queueAPITransactionalMessageTx(tx, sendConfigurationId, email, subject, template.html, template.text, template.tag_language, {...mergeTags,  EMAIL: email }, attachments);
+			await queueAPITransactionalMessageTx(tx, sendConfigurationId, email, subject, template.html, template.text, template.tag_language, {...mergeTags,  EMAIL: email }, attachments);
 		}
 	});
 }

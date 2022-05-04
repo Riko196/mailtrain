@@ -14,18 +14,19 @@ const { allTagLanguages } = require('../../shared/templates');
 const { CampaignMessageStatus, CampaignStatus, CampaignSource, CampaignType, getSendConfigurationPermissionRequiredForSend } = require('../../shared/campaigns');
 const sendConfigurations = require('./send-configurations');
 const triggers = require('./triggers');
-const {SubscriptionStatus} = require('../../shared/lists');
+const { SubscriptionStatus } = require('../../shared/lists');
+const { MessageType } = require('../../shared/messages');
 const subscriptions = require('./subscriptions');
 const segments = require('./segments');
 const senders = require('../lib/senders');
 const links = require('./links');
 const feedcheck = require('../lib/feedcheck');
 const contextHelpers = require('../lib/context-helpers');
-const {convertFileURLs} = require('../lib/campaign-content');
-const messageSender = require('../lib/message-sender');
+const { convertFileURLs } = require('../lib/campaign-content');
+const { getArchivedMessage, queueCampaignMessageTx } = require('./queued');
 const lists = require('./lists');
 
-const {EntityActivityType, CampaignActivityType} = require('../../shared/activity-log');
+const { EntityActivityType, CampaignActivityType } = require('../../shared/activity-log');
 const activityLog = require('../lib/activity-log');
 
 const allowedKeysCommon = ['name', 'description', 'namespace', 'channel',
@@ -911,8 +912,8 @@ async function _changeStatus(context, campaignId, permittedCurrentStates, newSta
 
         await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, {status: newState});
     });
-
-    senders.scheduleCheck();
+    // TODO Should I call it?
+    // senders.scheduleCheck();
 }
 
 
@@ -998,7 +999,7 @@ async function testSend(context, data) {
 
     await knex.transaction(async tx => {
         const processSubscriber = async (sendConfigurationId, listId, subscriptionId, messageData) => {
-            await messageSender.queueCampaignMessageTx(tx, sendConfigurationId, listId, subscriptionId, messageSender.MessageType.TEST, messageData);
+            await queueCampaignMessageTx(tx, sendConfigurationId, listId, subscriptionId, MessageType.TEST, messageData);
 
             await activityLog.logEntityActivity('campaign', CampaignActivityType.TEST_SEND, campaignId, {list: listId, subscription: subscriptionId});
         };
@@ -1097,8 +1098,8 @@ async function testSend(context, data) {
             await processSubscriber(data.sendConfigurationId, list.id, subscriber.id, messageData);
         }
     });
-
-    senders.scheduleCheck();
+    // TODO Should I call it?
+    // senders.scheduleCheck();
 }
 
 async function getRssPreview(context, campaignCid, listCid, subscriptionCid) {
@@ -1112,7 +1113,7 @@ async function getRssPreview(context, campaignCid, listCid, subscriptionCid) {
         rssEntry: await feedcheck.getEntryForPreview(campaign.data.feedUrl)
     };
 
-    return await messageSender.getMessage(campaignCid, listCid, subscriptionCid, settings, true);
+    return await getArchivedMessage(campaignCid, listCid, subscriptionCid, settings, true);
 }
 
 

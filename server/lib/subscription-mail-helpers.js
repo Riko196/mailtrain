@@ -3,12 +3,12 @@
 const log = require('npmlog');
 const fields = require('../models/fields');
 const settings = require('../models/settings');
-const {getTrustedUrl, getPublicUrl} = require('./urls');
+const { getTrustedUrl, getPublicUrl } = require('./urls');
 const { tUI, tMark } = require('./translate');
 const contextHelpers = require('./context-helpers');
-const {getFieldColumn, toNameTagLangauge} = require('../../shared/lists');
+const { getFieldColumn, toNameTagLangauge } = require('../../shared/lists');
 const forms = require('../models/forms');
-const messageSender = require('./message-sender');
+const { queueSubscriptionMessage } = require('../models/queued');
 const tools = require('./tools');
 
 module.exports = {
@@ -115,7 +115,7 @@ async function _sendMail(list, email, template, locale, subjectKey, relativeUrls
         const mergeTags = fields.getMergeTags(flds, subscription);
 
         if (list.send_configuration) {
-            await messageSender.queueSubscriptionMessage(
+            await queueSubscriptionMessage(
                 list.send_configuration,
                 {
                     name: list.to_name === null ? undefined : tools.formatTemplate(list.to_name, toNameTagLangauge, mergeTags, false),

@@ -516,7 +516,7 @@ export default class CUD extends Component {
                 </div>
                 }
 
-                {isEdit && this.props.entity.status === CampaignStatus.SENDING &&
+                {isEdit && (this.props.entity.status === CampaignStatus.SYNCHRONIZING || this.props.entity.status === CampaignStatus.SENDING) &&
                     <div className={`alert alert-info`} role="alert">
                         {t('formCannotBeEditedBecauseTheCampaignIs')}
                     </div>

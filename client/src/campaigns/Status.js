@@ -374,7 +374,7 @@ class SendControls extends Component {
                 </AlignedRow>
             );
 
-        } else if (entity.status === CampaignStatus.SENDING || (entity.status === CampaignStatus.SCHEDULED && !entity.scheduled)) {
+        } else if (entity.status === CampaignStatus.SYNCHRONIZING || entity.status === CampaignStatus.SENDING || (entity.status === CampaignStatus.SCHEDULED && !entity.scheduled)) {
             sendStatus = (
                 <AlignedRow label={t('sendStatus')}>
                     {t('campaignIsBeingSentOut')}
@@ -466,7 +466,7 @@ class SendControls extends Component {
                     </>
                 );
 
-            } else if (entity.status === CampaignStatus.SENDING || (entity.status === CampaignStatus.SCHEDULED && !entity.scheduled)) {
+            } else if (entity.status === CampaignStatus.SYNCHRONIZING || entity.status === CampaignStatus.SENDING || (entity.status === CampaignStatus.SCHEDULED && !entity.scheduled)) {
                 sendButtons = (
                     <>
                         <Button className="btn-primary" icon="pause" label={t('pause')} onClickAsync={::this.stopAsync}/>
@@ -593,7 +593,7 @@ export default class Status extends Component {
         let sendSettings;
         if (this.state.sendConfiguration) {
             sendSettings = [];
-            
+
             const addOverridable = (id, label) => {
                 if(this.state.sendConfiguration[id + '_overridable'] == 1 && entity[id + '_override'] != null){
                     sendSettings.push(<AlignedRow key={id} label={label}>{entity[id + '_override']}</AlignedRow>);

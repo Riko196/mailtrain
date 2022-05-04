@@ -23,7 +23,8 @@ export function getCampaignLabels(t) {
         [CampaignStatus.INACTIVE]: t('inactive'),
         [CampaignStatus.ACTIVE]: t('active'),
         [CampaignStatus.SENDING]: t('sending'),
-        [CampaignStatus.PAUSING]: t('pausing')
+        [CampaignStatus.PAUSING]: t('pausing'),
+        [CampaignStatus.SYNCHRONIZING]: t('synchronizing')
     };
 
 

@@ -257,7 +257,7 @@ export default class CUD extends Component {
         if (this.props.entity) {
             this.getFormValuesFromEntity(this.props.entity);
 
-            if (this.props.entity.status === CampaignStatus.SENDING) {
+            if (this.props.entity.status === CampaignStatus.SYNCHRONIZING || this.props.entity.status === CampaignStatus.SENDING) {
                 this.disableForm();
             }
 
@@ -714,7 +714,7 @@ export default class CUD extends Component {
                 </div>
                 }
 
-                {isEdit && this.props.entity.status === CampaignStatus.SENDING &&
+                {isEdit && (this.props.entity.status === CampaignStatus.SYNCHRONIZING || this.props.entity.status === CampaignStatus.SENDING) &&
                     <div className={`alert alert-info`} role="alert">
                         {t('formCannotBeEditedBecauseTheCampaignIs')}
                     </div>

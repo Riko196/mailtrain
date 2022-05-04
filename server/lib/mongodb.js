@@ -10,21 +10,22 @@ const { MongoClient } = require('mongodb');
  */
 let mongodb = null;
 
-const init = async () => {
+module.exports = async () => {
+    if (mongodb !== null)
+        return mongodb;
+
     try {
-        log.verbose('MongoDB', 'Connecting to MongoDB cluster...');
-        const uri = config.mongodb;
+        log.info('MongoDB', 'Connecting to MongoDB cluster...');
+        const uri = config.mongodb.uri;
         const mongoDBClient = new MongoClient(uri);
+
         /* Connect to the MongoDB cluster */
         await mongoDBClient.connect();
 
+        log.info('MongoDB', 'Successfully connected to MongoDB cluster!');
         /* Return mailtrain database */
-        mongodb = mongoDBClient.db('mailtrain');
-        log.verbose('MongoDB', 'Successfully connected to MongoDB cluster!');
+        return mongoDBClient.db('mailtrain');
     } catch (error) {
         log.verbose('MongoDB', error);
     }
 };
-
-/* Export mailtrain database */
-module.exports = mongodb;

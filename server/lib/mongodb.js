@@ -8,12 +8,10 @@ const { MongoClient } = require('mongodb');
  * Connection URI. Update <username>, <password>, and <your-cluster-url> to reflect your cluster.
  * See https://docs.mongodb.com/ecosystem/drivers/node/ for more details
  */
+
 let mongodb = null;
 
-module.exports = async () => {
-    if (mongodb !== null)
-        return mongodb;
-
+async function connectToMongoDB() {
     try {
         log.info('MongoDB', 'Connecting to MongoDB cluster...');
         const uri = config.mongodb.uri;
@@ -24,8 +22,15 @@ module.exports = async () => {
 
         log.info('MongoDB', 'Successfully connected to MongoDB cluster!');
         /* Return mailtrain database */
-        return mongoDBClient.db('mailtrain');
+        mongodb = mongoDBClient.db('mailtrain');
     } catch (error) {
         log.verbose('MongoDB', error);
     }
-};
+}
+
+function getMongoDB() {
+    return mongodb;
+}
+
+module.exports.connectToMongoDB = connectToMongoDB;
+module.exports.getMongoDB = getMongoDB;

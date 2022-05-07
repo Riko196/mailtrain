@@ -1,6 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
+const { getMongoDB } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
@@ -662,6 +663,8 @@ async function _removeTx(tx, context, id, existing = null, overrideTypeCheck = f
 
     await tx('campaign_lists').where('campaign', id).del();
     await tx('campaign_messages').where('campaign', id).del();
+    /* Synchronizing with MongoDB */
+    await getMongoDB().collection('campaign_messages').deleteMany({ campaign: id });
     await tx('campaign_links').where('campaign', id).del();
 
     await tx('links').where('campaign', id).del();
@@ -819,6 +822,7 @@ async function changeStatusByMessage(context, message, campaignMessageStatus, up
     });
 }
 
+/* TODO Should I remove it ? */
 async function updateMessageResponse(context, message, response, responseId) {
     await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, 'campaign', message.campaign, 'manageMessages');
@@ -833,7 +837,12 @@ async function updateMessageResponse(context, message, response, responseId) {
 async function prepareCampaignMessages(campaignId) {
     const campaign = await getById(contextHelpers.getAdminContext(), campaignId, false);
 
-    await knex('campaign_messages').where({campaign: campaignId, status: CampaignMessageStatus.SCHEDULED}).del();
+    await knex('campaign_messages').where({ campaign: campaignId, status: CampaignMessageStatus.SCHEDULED }).del();
+    /* Synchronizing with MongoDB */
+    await getMongoDB().collection('campaign_messages').deleteMany({
+        campaign: campaignId,
+        status: CampaignMessageStatus.SCHEDULED
+    });
 
     for (const cpgList of campaign.lists) {
         let addSegmentQuery;
@@ -858,6 +867,18 @@ async function prepareCampaignMessages(campaignId) {
             .toSQL().toNative();
 
         await knex.raw('INSERT IGNORE INTO `campaign_messages` (`hash_email`, `subscription`, `campaign`, `list`, `send_configuration`, `status`) ' + subsQry.sql, subsQry.bindings);
+
+        /* Synchronizing with MongoDB */
+        const messages = await knex('campaign_messages').where({
+            campaign: campaign.id,
+            list: cpgList.list,
+            status: CampaignMessageStatus.SCHEDULED
+        });
+        messages.map(message => {
+            message._id = message.id;
+            delete message.id;
+        });
+        await getMongoDB().collection('campaign_messages').insertMany(messages);
     }
 }
 
@@ -951,6 +972,8 @@ async function reset(context, campaignId) {
         });
 
         await tx('campaign_messages').where('campaign', campaignId).del();
+        /* Synchronizing with MongoDB */
+        await getMongoDB().collection('campaign_messages').deleteMany({ campaign: campaignId });
         await tx('campaign_links').where('campaign', campaignId).del();
         await tx('links').where('campaign', campaignId).del();
     });

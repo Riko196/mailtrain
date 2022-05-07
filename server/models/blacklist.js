@@ -1,6 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
+const { getMongoDB } = require('../lib/mongodb');
 const dtHelpers = require('../lib/dt-helpers');
 const shares = require('./shares');
 const tools = require('../lib/tools');
@@ -44,7 +45,8 @@ async function add(context, email) {
     shares.enforceGlobalPermission(context, 'manageBlacklist');
 
     try {
-        await knex('blacklist').insert({email});
+        await knex('blacklist').insert({ email });
+        await getMongoDB().collection('blacklist').insertOne({ email });
         await activityLog.logBlacklistActivity(BlacklistActivityType.ADD, email);
     } catch (err) {
         if (err.code === 'ER_DUP_ENTRY') {
@@ -61,9 +63,16 @@ async function remove(context, email) {
         shares.enforceGlobalPermission(context, 'manageBlacklist');
 
         await tx('blacklist').where('email', email).del();
-
+        await getMongoDB().collection('blacklist').deleteOne({ email });
         await activityLog.logBlacklistActivity(BlacklistActivityType.REMOVE, email);
     });
+}
+
+async function isBlacklistedInMongoDB(email) {
+    enforce(email, 'Email has to be set');
+
+    const existing = await getMongoDB().collection('blacklist').findOne({ email });
+    return !!existing;
 }
 
 async function isBlacklisted(email) {

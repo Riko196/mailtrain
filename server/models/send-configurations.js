@@ -159,10 +159,8 @@ async function updateWithConsistencyCheck(context, entity) {
 
         await shares.rebuildPermissionsTx(tx, { entityTypeId: 'sendConfiguration', entityId: entity.id });
     });
-    // TODO Should I call it?
-    // mailers.invalidateMailer(entity.id);
-    // TODO Should I call it?
-    // senders.reloadConfig(entity.id);
+
+    /* TODO Maybe in the future, we would like to synchronize this update also with MongoDB and Sender ? */
 }
 
 async function remove(context, id) {

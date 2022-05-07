@@ -19,6 +19,7 @@ const reportProcessor = require('./lib/report-processor');
 const executor = require('./lib/executor');
 const privilegeHelpers = require('./lib/privilege-helpers');
 const knex = require('./lib/knex');
+const mongodb = require('./lib/mongodb');
 const bluebird = require('bluebird');
 const shares = require('./models/shares');
 const { AppType } = require('../shared/app');
@@ -82,6 +83,7 @@ async function init() {
     await dbcheck();
 
     await knex.migrate.latest(); // And now the current migration with Knex
+    await mongodb.connectToMongoDB();
 
     await shares.regenerateRoleNamesTable();
     await shares.rebuildPermissions();

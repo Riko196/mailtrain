@@ -2,6 +2,7 @@
 
 const config = require('../lib/config');
 const knex = require('../lib/knex');
+const { getMongoDB } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const shortid = require('../lib/shortid');
 const dtHelpers = require('../lib/dt-helpers');
@@ -618,6 +619,8 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
     if (filteredEntity) {
         filteredEntity.updated = new Date();
         await tx(getSubscriptionTableName(listId)).where('id', existing.id).update(filteredEntity);
+        /* Synchronizing with MongoDB */
+        await getMongoDB().collection(getSubscriptionTableName(listId)).updateMany({ _id: existing.id }, filteredEntity);
 
         if ('status' in filteredEntity) {
             let countIncrement = 0;
@@ -633,6 +636,8 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
         }
     } else {
         await tx(getSubscriptionTableName(listId)).where('id', existing.id).del();
+        /* Synchronizing with MongoDB */
+        await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({ _id: existing.id });
 
         if (existing.status === SubscriptionStatus.SUBSCRIBED) {
             await tx('lists').where('id', listId).decrement('subscribers', 1);
@@ -643,6 +648,7 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
 async function _create(tx, listId, filteredEntity) {
     const ids = await tx(getSubscriptionTableName(listId)).insert(filteredEntity);
     const id = ids[0];
+    await getMongoDB().collection(getSubscriptionTableName(listId)).insertOne({ ...filteredEntity, _id: id });
 
     if (filteredEntity.status === SubscriptionStatus.SUBSCRIBED) {
         await tx('lists').where('id', listId).increment('subscribers', 1);
@@ -731,6 +737,8 @@ async function _removeAndGetTx(tx, context, listId, existing) {
     }
 
     await tx(getSubscriptionTableName(listId)).where('id', existing.id).del();
+    /* Synchronizing with MongoDB */
+    await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({ _id: existing.id });
 
     if (existing.status === SubscriptionStatus.SUBSCRIBED) {
         await tx('lists').where('id', listId).decrement('subscribers', 1);
@@ -825,7 +833,12 @@ async function updateAddressAndGet(context, listId, subscriptionId, emailNew) {
         }
 
         if (existing.email !== emailNew) {
-            await tx(getSubscriptionTableName(listId)).where('hash_email', hashEmail(emailNew)).del();
+            const hashedEmail = hashEmail(emailNew);
+            await tx(getSubscriptionTableName(listId)).where('hash_email', hashedEmail).del();
+            /* Synchronizing with MongoDB */
+            await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({
+                hash_email: hashedEmail
+            });
 
             await tx(getSubscriptionTableName(listId)).where('id', subscriptionId).update({
                 email: emailNew
@@ -858,6 +871,8 @@ async function updateManaged(context, listId, cid, entity) {
         ungroupSubscription(groupedFieldsMap, update);
 
         await tx(getSubscriptionTableName(listId)).where('cid', cid).update(update);
+        /* Synchronizing with MongoDB */
+        await getMongoDB().collection(getSubscriptionTableName(listId)).updateMany({ cid }, update);
     });
 }
 

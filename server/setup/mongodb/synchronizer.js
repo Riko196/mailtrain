@@ -1,5 +1,5 @@
 const knex = require('../../lib/knex');
-const { connect, getMongoDB } = require('../../lib/mongodb');
+const { connectToMongoDB, getMongoDB } = require('../../lib/mongodb');
 const { getSubscriptionTableName } = require('../../models/subscriptions');
 
 /*
@@ -8,7 +8,7 @@ const { getSubscriptionTableName } = require('../../models/subscriptions');
 */
 async function synchronizeMongoDbWithMySQL() {
     try {
-        await connect();
+        await connectToMongoDB();
         let mongodb = getMongoDB();
 
         /* Drop all collections */
@@ -20,7 +20,7 @@ async function synchronizeMongoDbWithMySQL() {
         }
 
         /* Reconnecting after the database was dropped */
-        await connect();
+        await connectToMongoDB();
         mongodb = getMongoDB();
 
         /* Synchronizing blacklist */

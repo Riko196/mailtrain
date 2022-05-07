@@ -110,25 +110,11 @@ class Scheduler {
         const isCompleted = () => {
             if (msgQueue.length > 0)
                 return false;
-
-            let workerRunning = false;
-
-            for (const wa of workAssignment.values()) {
-                if (wa.type === WorkAssignmentType.QUEUED && wa.sendConfigurationId === sendConfigurationId) {
-                    workerRunning = true;
-                }
-            }
-
-            return !workerRunning;
         };
 
         async function finish(clearMsgQueue, deleteMsgQueue) {
             if (clearMsgQueue) {
                 msgQueue.splice(0);
-            }
-
-            while (!isCompleted()) {
-                await notifier.waitFor('workerFinished');
             }
 
             if (deleteMsgQueue) {
@@ -290,11 +276,6 @@ class Scheduler {
         }
 
         async function finish(newStatus) {
-            /* TODO some synchronize operation with worker ? */
-            /* while (!isCompleted()) {
-                await notifier.waitFor('workerFinished');
-            } */
-
             if (newStatus) {
                 await knex('campaigns').where('id', campaignId).update({ status: newStatus });
                 await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, { status: newStatus });
@@ -323,11 +304,13 @@ class Scheduler {
                     return await finish(CampaignStatus.SCHEDULED);
                 }
 
-                /* TODO optimize this operation */
-                preparedCampaignMessages = await knex('campaign_messages')
-                    .where({ status: CampaignMessageStatus.SCHEDULED, campaign: campaignId });
+                const preparedCampaignMessage = await knex('campaign_messages')
+                    .where({
+                        status: CampaignMessageStatus.SCHEDULED,
+                        campaign: campaignId
+                    }).first();
 
-                if (preparedCampaignMessages.length === 0) {
+                if (!preparedCampaignMessage) {
                     if (isCompleted()) {
                         return await finish(false, CampaignStatus.FINISHED);
                     } else {

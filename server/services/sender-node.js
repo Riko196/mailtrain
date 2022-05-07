@@ -1,18 +1,20 @@
 'use strict';
 
-const mongodbInit = require('../lib/mongodb');
+const { connectToMongoDB, getMongoDB } = require('../lib/mongodb');
 const log = require('../lib/log');
 const activityLog = require('../lib/activity-log');
 const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
 const RegularMailSender = require('../lib/sender/mail-sender/regular-mail-sender');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
+const { CampaignMessageStatus } = require('../../shared/campaigns');
 
 /**
  * The main component of distributed system for making and sending mails.
  */
  class SenderNode {
     async senderNodeLoop() {
-        this.mongodb = await mongodbInit();
+        await connectToMongoDB();
+        this.mongodb = getMongoDB();
         try {
             // Make the appropriate DB calls
             setInterval(async () => {
@@ -26,23 +28,28 @@ const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sende
     async listTasks(){
         const taskList = await this.mongodb.collection('tasks').find();
 
-        console.log('Tasks:');
+        //console.log('Tasks:');
         taskList.forEach(task => {
-            // console.log(` - ${JSON.stringify(task, null, ' ')}\n\n\n`)
-            this.processRegularCampaign(task);
+            //console.log(` - ${JSON.stringify(task, null, ' ')}\n\n\n`)
+            this.processCampaignMessages(task);
         });
     };
 
     async processCampaignMessages(campaignData) {
         log.verbose('Sender', 'Start to processing regular campaign ...');
-
+        const campaignId = campaignData.campaign.id;
         const regularMailMaker = new RegularMailMaker(campaignData);
         const regularMailSender = new RegularMailSender(campaignData);
 
-        for (const campaignMessage of campaignData.messages) {
+        const campaignMessages = await this.mongodb.collection('campaign_messages').find({
+            campaign: campaignId,
+            status: CampaignMessageStatus.SCHEDULED
+        }).toArray();
+
+        for (const campaignMessage of campaignMessages) {
             try {
                 const mail = await regularMailMaker.makeMail(campaignMessage);
-                await regularMailSender.sendMail(mail);
+                await regularMailSender.sendMail(mail, campaignMessage._id);
                 //await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
                 log.verbose('Sender', 'Message sent and status updated for %s:%s', campaignMessage.list, campaignMessage.subscription);
             } catch (error) {
@@ -53,7 +60,6 @@ const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sende
                 } else {
                     log.error('Sender', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}.`);
                 }
-                throw error;
             }
         }
     }

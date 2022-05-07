@@ -1,6 +1,6 @@
 'use strict';
 
-const mongodbInit = require('../lib/mongodb');
+const { connectToMongoDB, getMongoDB } = require('../lib/mongodb');
 const knex = require('../lib/knex');
 const { MessageType } = require('../../shared/messages');
 const { CampaignStatus } = require('../../shared/campaigns');
@@ -23,15 +23,19 @@ class Synchronizer {
         /* sendConfigurationId -> [queuedMessage] */
         this.sendConfigurationMessageQueue = new Map();
         this.notifier = new Notifier();
-
         this.dataCollector = new DataCollector();
-        this.scheduler = new Scheduler(
-            this.synchronizingCampaigns,
-            this.sendConfigurationMessageQueue,
-            this.notifier
-        );
-        log.verbose('Synchronizer', this);
-        setImmediate(this.synchronizerLoop.bind(this));
+
+        /* Connect to the MongoDB and accomplish setup */
+        connectToMongoDB().then(() => {
+            this.mongodb = getMongoDB();
+            this.scheduler = new Scheduler(
+                this.synchronizingCampaigns,
+                this.sendConfigurationMessageQueue,
+                this.notifier
+            );
+            log.verbose('Synchronizer', this);
+            setImmediate(this.synchronizerLoop.bind(this));
+        });
     }
 
     async selectNextTask() {
@@ -39,7 +43,6 @@ class Synchronizer {
     }
 
     async synchronizerLoop() {
-        this.mongodb = await mongodbInit();
         log.verbose('Synchronizer', 'Starting loop...');
 
         while (true) {

@@ -4,6 +4,7 @@ const config = require('../../config');
 const log = require('../../log');
 const { CampaignMessageErrorType } = require('../../../../shared/campaigns');
 const openpgpEncrypt = require('nodemailer-openpgp').openpgpEncrypt;
+const { getMongoDB } = require('../../mongodb');
 const { ZoneMTAType, MailerType } = require('../../../../shared/send-configurations');
 const builtinZoneMta = require('../../builtin-zone-mta');
 const nodemailer = require('nodemailer');
@@ -16,6 +17,7 @@ const bluebird = require('bluebird');
 class MailSender {
     constructor(campaignData) {
         Object.assign(this, campaignData);
+        this.mongodb = getMongoDB();
         this.transports = new Map();
     }
 
@@ -224,7 +226,11 @@ class MailSender {
     }
 
     async sendMail(mail) {
-        if (this.blacklist.emails.indexOf(mail.to.address) !== -1) {
+        const isOnBlacklist = await this.mongodb
+                    .collection('blacklist')
+                    .findOne({ email: mail.to.address });
+
+        if (isOnBlacklist) {
             return;
         }
 

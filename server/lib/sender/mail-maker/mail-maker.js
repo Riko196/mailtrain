@@ -4,6 +4,7 @@ const log = require('../../log');
 const { groupSubscription, getSubscriptionTableName } = require('../../../models/subscriptions');
 const fields = require('../../../models/fields');
 const links = require('../../../models/links');
+const { getMongoDB } = require('../../mongodb');
 const { CampaignSource, CampaignMessageErrorType } = require('../../../../shared/campaigns');
 const { toNameTagLangauge, getFieldColumn } = require('../../../../shared/lists');
 const tools = require('../../tools');
@@ -20,6 +21,7 @@ const shortid = require('../../shortid');
 class MailMaker {
     constructor(campaignData) {
         Object.assign(this, campaignData);
+        this.mongodb = getMongoDB();
         this.listsById = JSON.parse(this.listsById);
         this.listsByCid = JSON.parse(this.listsByCid);
         this.listsFieldsGrouped = JSON.parse(this.listsFieldsGrouped);
@@ -96,7 +98,7 @@ class MailMaker {
             message.html = tools.formatCampaignTemplate(message.html, this.tagLanguage, mergeTags, true, this.campaign, this.listsById, list, subscriptionGrouped);
         }
 
-        const generateText = !(text || '').trim();
+        const generateText = !(message.text || '').trim();
         if (generateText) {
             message.text = htmlToText.fromString(message.html, {wordwrap: 130});
         } else {
@@ -151,9 +153,9 @@ class MailMaker {
             let subscriptionGrouped = {};
             if (subData.subscriptionId) {
                 listId = subData.listId;
-                const subscriber = this.subscribers[getSubscriptionTableName(listId)]
-                    .subscriptions
-                    .find(x => x.id === subData.subscriptionId);
+                const subscriber = await this.mongodb
+                    .collection(getSubscriptionTableName(listId))
+                    .findOne({ _id: subData.subscriptionId });
                 const groupedFieldsMap = {};
                 for (const field of this.listsFieldsGrouped[listId]) {
                     groupedFieldsMap[getFieldColumn(field)] = field;
@@ -164,13 +166,13 @@ class MailMaker {
             }
 
             const list = this.listsById[listId];
-            const fields = this.listsFieldsGrouped[list.id];
+            const mailFields = this.listsFieldsGrouped[list.id];
 
             if (!mergeTags) {
-                mergeTags = fields.getMergeTags(fields, subscriptionGrouped, this.getExtraTags());
+                mergeTags = fields.getMergeTags(mailFields, subscriptionGrouped, this.getExtraTags());
             }
 
-            for (const field of fields) {
+            for (const field of mailFields) {
                 if (field.type === 'gpg' && mergeTags[field.key]) {
                     mail.encryptionKeys.push(mergeTags[field.key].trim());
                 }
@@ -186,7 +188,7 @@ class MailMaker {
             }
 
             mail.to = {
-                name: list.to_name === null ? undefined : tools.formatCampaignTemplate(list.to_name, toNameTagLangauge, mergeTags, false, campaign, this.listsById, list, subscriptionGrouped),
+                name: list.to_name === null ? undefined : tools.formatCampaignTemplate(list.to_name, toNameTagLangauge, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped),
                 address: subscriptionGrouped.email
             };
 

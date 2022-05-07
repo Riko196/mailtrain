@@ -45,11 +45,7 @@ class DataCollector {
 
             await this.collectAttachments(tx, query);
             await this.collectTemplates(tx, query);
-            await this.collectMessages(tx);
         });
-
-        await this.collectSubscribers();
-        await this.collectBlacklist();
         await this.collectLinks();
         await this.collectSettings(query);
 
@@ -172,20 +168,6 @@ class DataCollector {
         enforce(this.data.renderedHtml || (this.data.campaign && this.data.campaign.source === CampaignSource.URL) || this.data.tagLanguage);
 
         // log.verbose('DataCollector', `Collected template data: ${JSON.stringify(this.data.template, null, ' ')}`);
-    }
-
-    async collectMessages(tx) {
-        this.data.messages = await tx('campaign_messages')
-                                .where({ status: CampaignMessageStatus.SCHEDULED, campaign: this.data.campaign.id });
-    }
-
-    async collectSubscribers() {
-        this.data.subscribers = {};
-        for (const listId of Object.keys(this.data.listsById)) {
-            this.data.subscribers[subscriptions.getSubscriptionTableName(listId)] =
-                await subscriptions.list(contextHelpers.getAdminContext(), listId, false, null, null);
-        }
-        // log.verbose('DataCollector', `Collected subscribers data: ${JSON.stringify(this.data.subscribers, null, ' ')}`);
     }
 
     async collectBlacklist() {

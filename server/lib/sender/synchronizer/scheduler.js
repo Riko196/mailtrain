@@ -9,15 +9,11 @@ const { CampaignActivityType } = require('../../../../shared/activity-log');
 const { CampaignStatus, CampaignMessageStatus, CampaignType } = require('../../../../shared/campaigns');
 const { MessageType } = require('../../../../shared/messages');
 
-const WorkAssignmentType = {
-    CAMPAIGN: 0,
-    QUEUED: 1
-};
-
 const CHECK_PERIOD = 30 * 1000;
+const CHUNK_SIZE = 1000;
 
 /**
- * Scheduler which periodically checks all kinds of campaigns and prepare them for next processing.
+ * Scheduler which periodically checks all kinds of campaigns and queued messages and prepares them for next processing.
  */
 class Scheduler {
     constructor(synchronizingCampaigns, sendConfigurationMessageQueue, notifier) {
@@ -107,10 +103,9 @@ class Scheduler {
     async prepareQueuedBySendConfiguration(sendConfigurationId) {
         const msgQueue = this.sendConfigurationMessageQueue.get(sendConfigurationId);
 
-        const isCompleted = () => {
-            if (msgQueue.length > 0)
-                return false;
-        };
+        function isCompleted() {
+            return msgQueue.length > 0;
+        }
 
         async function finish(clearMsgQueue, deleteMsgQueue) {
             if (clearMsgQueue) {
@@ -122,36 +117,26 @@ class Scheduler {
             }
         }
 
-
         try {
             while (true) {
                 if (this.isSendConfigurationPostponed(sendConfigurationId)) {
                     return await finish(true, true);
                 }
 
-                let messagesInProcessing = [...msgQueue];
-                for (const wa of workAssignment.values()) {
-                    if (wa.type === WorkAssignmentType.QUEUED && wa.sendConfigurationId === sendConfigurationId) {
-                        messagesInProcessing = messagesInProcessing.concat(wa.messages);
-                    }
-                }
-
-                const messageIdsInProcessing = messagesInProcessing.map(x => x.id);
+                const messageIdsInProcessing = [...msgQueue].map(x => x.id);
 
                 /* This orders messages in the following order MessageType.SUBSCRIPTION, MessageType.TEST, MessageType.API_TRANSACTIONAL and MessageType.TRIGGERED */
                 const rows = await knex('queued')
                     .orderByRaw(`FIELD(type, ${MessageType.TRIGGERED}, ${MessageType.API_TRANSACTIONAL}, ${MessageType.TEST}, ${MessageType.SUBSCRIPTION}) DESC, id ASC`)
                     .where('send_configuration', sendConfigurationId)
                     .whereNotIn('id', messageIdsInProcessing)
-                    .limit(retrieveBatchSize);
+                    .limit(CHUNK_SIZE);
 
                 if (rows.length === 0) {
                     if (isCompleted()) {
                         return await finish(false, true);
-
                     } else {
                         await finish(false, false);
-
                         // At this point, there might be new messages in the queued that could belong to us. Thus we have to try again instead for returning.
                         continue;
                     }
@@ -169,9 +154,9 @@ class Scheduler {
                     if (row.created < expirationThreshold.threshold) {
                         expirationCounters[row.type] += 1;
                         await knex('queued').where('id', row.id).del();
-
                     } else {
                         row.data = JSON.parse(row.data);
+                        log.verbose('Scheduler', `Scheduled new queued messages: ${msgQueue}`);
                         msgQueue.push(row);
                     }
                 }
@@ -184,6 +169,7 @@ class Scheduler {
                 }
 
                 this.notifier.notify('taskAvailable');
+                return;
             }
         } catch (err) {
             log.error('Sender', `Sending queued messages for send configuration ${sendConfigurationId} failed with error: ${err.message}`);

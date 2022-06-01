@@ -11,6 +11,7 @@ const files = require('../../../models/files');
 const templates = require('../../../models/templates');
 const subscriptions = require('../../../models/subscriptions');
 const settings = require('../../../models/settings');
+const { isQueuedMessage } = require('../../../models/queued');
 const contextHelpers = require('../../context-helpers');
 const knex = require('../../knex');
 const log = require('../../log');
@@ -49,6 +50,11 @@ class DataCollector {
         await this.collectLinks();
         await this.collectSettings(query);
 
+        /* Only for queued messages */
+        if (isQueuedMessage(type)) {
+            this.data.status = CampaignMessageStatus.SCHEDULED;
+        }
+
         /* We have to convert Maps to JSON string in order to be able to send it to MongoDB */
         this.data.listsById = JSON.stringify(this.data.listsById);
         this.data.listsByCid = JSON.stringify(this.data.listsByCid);
@@ -71,9 +77,11 @@ class DataCollector {
 
     async collectSendConfiguration(tx, query) {
         if (query.sendConfigurationId) {
-            this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), query.sendConfigurationId, false, true);
+            this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(),
+                query.sendConfigurationId, false, true);
         } else if (this.data.campaign && this.data.campaign.send_configuration) {
-            this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), this.data.campaign.send_configuration, false, true);
+            this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(),
+                this.data.campaign.send_configuration, false, true);
         } else {
             enforce(false);
         }
@@ -129,7 +137,8 @@ class DataCollector {
         if (query.attachments) {
             this.data.attachments = query.attachments;
         } else if (this.data.campaign && this.data.campaign.id) {
-            const attachments = await files.listTx(tx, contextHelpers.getAdminContext(), 'campaign', 'attachment', this.data.campaign.id);
+            const attachments = await files.listTx(tx, contextHelpers.getAdminContext(), 'campaign', 'attachment',
+                this.data.campaign.id);
 
             this.data.attachments = [];
             for (const attachment of attachments) {
@@ -154,24 +163,23 @@ class DataCollector {
             this.data.text = query.text;
             this.data.tagLanguage = query.tagLanguage;
         } else if (this.data.campaign && this.data.campaign.source === CampaignSource.TEMPLATE) {
-            this.data.template = await templates.getByIdTx(tx, contextHelpers.getAdminContext(), this.data.campaign.data.sourceTemplate, false);
+            this.data.template = await templates.getByIdTx(tx, contextHelpers.getAdminContext(),
+                this.data.campaign.data.sourceTemplate, false);
             this.data.html = this.data.template.html;
             this.data.text = this.data.template.text;
             this.data.tagLanguage = this.data.template.tag_language;
         } else if (this.data.campaign &&
-            (this.data.campaign.source === CampaignSource.CUSTOM || this.data.campaign.source === CampaignSource.CUSTOM_FROM_TEMPLATE || this.data.campaign.source === CampaignSource.CUSTOM_FROM_CAMPAIGN)) {
+            (this.data.campaign.source === CampaignSource.CUSTOM || this.data.campaign.source
+                === CampaignSource.CUSTOM_FROM_TEMPLATE || this.data.campaign.source === CampaignSource.CUSTOM_FROM_CAMPAIGN)) {
             this.data.html = this.data.campaign.data.sourceCustom.html;
             this.data.text = this.data.campaign.data.sourceCustom.text;
             this.data.tagLanguage = this.data.campaign.data.sourceCustom.tag_language;
         }
 
-        enforce(this.data.renderedHtml || (this.data.campaign && this.data.campaign.source === CampaignSource.URL) || this.data.tagLanguage);
+        enforce(this.data.renderedHtml || (this.data.campaign && this.data.campaign.source === CampaignSource.URL)
+            || this.data.tagLanguage);
 
         // log.verbose('DataCollector', `Collected template data: ${JSON.stringify(this.data.template, null, ' ')}`);
-    }
-
-    async collectBlacklist() {
-        this.data.blacklist = await blacklist.search(contextHelpers.getAdminContext(), 0, 1000, '');
     }
 
     async collectLinks() {

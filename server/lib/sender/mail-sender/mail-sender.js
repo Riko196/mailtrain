@@ -226,6 +226,7 @@ class MailSender {
     }
 
     async sendMail(mail) {
+        log.verbose('MailSender', `Starting to sending mail for ${mail.to.address} ...`);
         const isOnBlacklist = await this.mongodb
                     .collection('blacklist')
                     .findOne({ email: mail.to.address });

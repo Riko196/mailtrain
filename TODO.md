@@ -24,3 +24,12 @@ Note that some of these may be already obsolete...
 
 ### RSS Campaigns
 - Aggregated RSS campaigns
+
+### Sender
+- Sending messages uniformly
+- Synchronizing responses from MongoDB (campaign_messages, queued messages, links)
+- Resend FAILED messages
+- Synchronizing campaign operations from Client with MongoDB (Pause, Continue, Reset, ...)
+- Call scheduler from client
+- Make Sender parallel
+- Make Sender high-available

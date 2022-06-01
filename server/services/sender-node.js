@@ -5,6 +5,8 @@ const log = require('../lib/log');
 const activityLog = require('../lib/activity-log');
 const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
 const RegularMailSender = require('../lib/sender/mail-sender/regular-mail-sender');
+const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
+const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignMessageStatus } = require('../../shared/campaigns');
 
@@ -17,9 +19,10 @@ const { CampaignMessageStatus } = require('../../shared/campaigns');
         this.mongodb = getMongoDB();
         try {
             // Make the appropriate DB calls
-            setInterval(async () => {
+            /*setInterval(async () => {
                 await this.listTasks();
-            }, 5000);
+            }, 5000);*/
+            await this.listTasks();
         } catch (e) {
             console.error(e);
         }
@@ -53,6 +56,7 @@ const { CampaignMessageStatus } = require('../../shared/campaigns');
                 //await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
                 log.verbose('Sender', 'Message sent and status updated for %s:%s', campaignMessage.list, campaignMessage.subscription);
             } catch (error) {
+                console.log(error);
                 if (error instanceof SendConfigurationError) {
                     log.error('Sender',
                         `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. Will retry the message if within retention interval.`);
@@ -64,32 +68,20 @@ const { CampaignMessageStatus } = require('../../shared/campaigns');
         }
     }
 
-    /*async function processQueuedMessages(sendConfigurationId, messages) {
-        let withErrors = false;
-
-        for (const queuedMessage of messages) {
-
-            const messageType = queuedMessage.type;
-
-            const msgData = queuedMessage.data;
-            let target = '';
-            if (msgData.listId && msgData.subscriptionId) {
-                target = `${msgData.listId}:${msgData.subscriptionId}`;
-            } else if (msgData.to) {
-                if (msgData.to.name && msgData.to.address) {
-                    target = `${msgData.to.name} <${msgData.to.address}>`;
-                } else if (msgData.to.address) {
-                    target = msgData.to.address;
-                } else {
-                    target = msgData.to.toString();
-                }
-            }
+    async processQueuedMessages(queuedMessages) {
+        log.verbose('Sender', 'Start to processing queued messages ...');
+        for (const queuedMessage of queuedMessages) {
+            const messageData = queuedMessage.data;
+            const queuedMailMaker = new QueuedMailMaker(messageData);
+            const queuedMailSender = new QueuedMailSender(messageData);
+            const target = queuedMailMaker.makeTarget(messageData);
 
             try {
+                const mail = await queuedMailMaker.makeMail(queue)
                 await messageSender.sendQueuedMessage(queuedMessage);
 
-                if ((messageType === MessageType.TRIGGERED || messageType === MessageType.TEST) && msgData.campaignId && msgData.listId && msgData.subscriptionId) {
-                    await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, msgData.campaignId, msgData.listId, msgData.subscriptionId);
+                if ((messageType === MessageType.TRIGGERED || messageType === MessageType.TEST) && messageData.campaignId && messageData.listId && messageData.subscriptionId) {
+                    await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, messageData.campaignId, messageData.listId, messageData.subscriptionId);
                 }
 
                 log.verbose('Senders', `Message sent and status updated for ${target}`);
@@ -110,7 +102,7 @@ const { CampaignMessageStatus } = require('../../shared/campaigns');
                 }
             }
         }
-    }*/
+    }
 }
 
 new SenderNode().senderNodeLoop();

@@ -138,8 +138,13 @@ async function getArchivedMessage(campaignCid, listCid, subscriptionCid, setting
     return await regularMailMaker.makeMessage(mergeTags, list, subscriptionGrouped, false);
 }
 
+function isQueuedMessage(messageType) {
+    return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST || messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
+}
+
 module.exports.queueCampaignMessageTx = queueCampaignMessageTx;
 module.exports.queueSubscriptionMessage = queueSubscriptionMessage;
 module.exports.queueAPITransactionalMessageTx = queueAPITransactionalMessageTx;
 module.exports.dropQueuedMessage = dropQueuedMessage;
 module.exports.getArchivedMessage = getArchivedMessage;
+module.exports.isQueuedMessage = isQueuedMessage;

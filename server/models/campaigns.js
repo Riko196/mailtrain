@@ -869,6 +869,7 @@ async function prepareCampaignMessages(campaignId) {
         await knex.raw('INSERT IGNORE INTO `campaign_messages` (`hash_email`, `subscription`, `campaign`, `list`, `send_configuration`, `status`) ' + subsQry.sql, subsQry.bindings);
 
         /* Synchronizing with MongoDB */
+        // TODO optimize
         const messages = await knex('campaign_messages').where({
             campaign: campaign.id,
             list: cpgList.list,
@@ -929,6 +930,7 @@ async function _changeStatus(context, campaignId, permittedCurrentStates, newSta
             }
         }
 
+        /* TODO Synchronize with MongoDB */
         await tx('campaigns').where('id', campaignId).update(updateData);
 
         await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, {status: newState});
@@ -943,7 +945,7 @@ async function start(context, campaignId, extraData) {
 }
 
 async function stop(context, campaignId) {
-    await _changeStatus(context, campaignId, [CampaignStatus.SCHEDULED, CampaignStatus.SENDING], [CampaignStatus.IDLE, CampaignStatus.PAUSING], 'Cannot stop campaign until it is in SCHEDULED or SENDING state');
+    await _changeStatus(context, campaignId, [CampaignStatus.SCHEDULED, CampaignStatus.SENDING, CampaignStatus.SYNCHRONIZING], [CampaignStatus.IDLE, CampaignStatus.PAUSING, CampaignStatus.PAUSING], 'Cannot stop campaign until it is in SCHEDULED, SENDING, or SYNCHRONIZING state');
 }
 
 async function reset(context, campaignId) {
@@ -972,7 +974,7 @@ async function reset(context, campaignId) {
         });
 
         await tx('campaign_messages').where('campaign', campaignId).del();
-        /* Synchronizing with MongoDB */
+        /* TODO Synchronizing with MongoDB */
         await getMongoDB().collection('campaign_messages').deleteMany({ campaign: campaignId });
         await tx('campaign_links').where('campaign', campaignId).del();
         await tx('links').where('campaign', campaignId).del();

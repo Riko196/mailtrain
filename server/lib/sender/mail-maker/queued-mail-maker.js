@@ -18,7 +18,7 @@ class QueuedMailMaker extends MailMaker {
     }
 
     /* Make string of receiver, used only for debugging purpose. */
-    makeTarger(messageData) {
+    makeTarget(messageData) {
         let target = '';
 
         if (messageData.listId && messageData.subscriptionId) {

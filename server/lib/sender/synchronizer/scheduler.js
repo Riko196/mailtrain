@@ -19,9 +19,9 @@ class Scheduler {
     constructor(synchronizingCampaigns, sendConfigurationMessageQueue, notifier) {
         log.info('Scheduler', 'Init scheduler...');
 
-        /* Setup synchronizing and sending camapaigns to scheduled status again */
+        /* Setup synchronizing camapaigns to scheduled status again */
         knex('campaigns')
-            .whereIn('status', [CampaignStatus.SYNCHRONIZING, CampaignStatus.SENDING])
+            .whereIn('status', [CampaignStatus.SYNCHRONIZING])
             .update({ status: CampaignStatus.SCHEDULED })
             .then(() => {
                 this.synchronizingCampaigns = synchronizingCampaigns;
@@ -29,7 +29,8 @@ class Scheduler {
                 this.notifier = notifier;
                 /* sendConfigurationId -> {retryCount, postponeTill} */
                 this.sendConfigurationStatuses = new Map();
-                this.sendConfigurationIdByCampaignId = new Map(); // campaignId -> sendConfigurationId
+                /* campaignId -> sendConfigurationId */
+                this.sendConfigurationIdByCampaignId = new Map();
                 /* Mutexes */
                 this.queuedSchedulerRunning = false;
                 this.campaignSchedulerRunning = false;

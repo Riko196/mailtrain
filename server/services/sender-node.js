@@ -8,7 +8,9 @@ const RegularMailSender = require('../lib/sender/mail-sender/regular-mail-sender
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
-const { CampaignMessageStatus } = require('../../shared/campaigns');
+const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
+
+const CHUNK_SIZE = 100;
 
 /**
  * The main component of distributed system for making and sending mails.
@@ -17,44 +19,68 @@ const { CampaignMessageStatus } = require('../../shared/campaigns');
     async senderNodeLoop() {
         await connectToMongoDB();
         this.mongodb = getMongoDB();
-        try {
-            // Make the appropriate DB calls
-            /*setInterval(async () => {
-                await this.listTasks();
-            }, 5000);*/
-            await this.listTasks();
-        } catch (e) {
-            console.error(e);
+        while (true) {
+            try {
+                await this.checkCampaignMessages();
+                //await this.checkQueuedMessages();
+            } catch (error) {
+                console.error(error);
+            }
         }
     }
 
-    async listTasks(){
-        const taskList = await this.mongodb.collection('tasks').find();
+    async checkCampaignMessages(){
+        const taskList = await this.mongodb.collection('tasks').find({
+            'campaign.status': CampaignStatus.SENDING
+        }).toArray();
 
-        //console.log('Tasks:');
-        taskList.forEach(task => {
-            //console.log(` - ${JSON.stringify(task, null, ' ')}\n\n\n`)
-            this.processCampaignMessages(task);
-        });
+        //log.verbose('Sender', `Received taskList: ${taskList}`);
+
+        for (const task of taskList) {
+            const campaignId = task.campaign.id;
+            const chunkCampaignMessages = await this.mongodb.collection('campaign_messages').find({
+                campaign: campaignId,
+                status: CampaignMessageStatus.SCHEDULED
+            }).limit(CHUNK_SIZE).toArray();
+
+            //log.verbose('Sender', `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
+
+            if (chunkCampaignMessages.length === 0) {
+                await this.mongodb.collection('tasks')
+                    .updateOne({
+                        _id: task._id
+                    }, {
+                        $set: {
+                            status: CampaignStatus.FINISHED,
+                            updated: new Date()
+                        }
+                    });
+            } else {
+                await this.processCampaignMessages(task, chunkCampaignMessages);
+            }
+        };
     };
 
-    async processCampaignMessages(campaignData) {
-        log.verbose('Sender', 'Start to processing regular campaign ...');
+    async checkQueuedMessages(){
+        const chunkQueuedMessages = await this.mongodb.collection('queued').find({
+            status: CampaignMessageStatus.SCHEDULED
+        }).limit(CHUNK_SIZE).toArray();
+    };
+
+    async processCampaignMessages(campaignData, campaignMessages) {
+        //log.verbose('Sender', 'Start to processing regular campaign ...');
+        let counter = 0;
         const campaignId = campaignData.campaign.id;
         const regularMailMaker = new RegularMailMaker(campaignData);
         const regularMailSender = new RegularMailSender(campaignData);
-
-        const campaignMessages = await this.mongodb.collection('campaign_messages').find({
-            campaign: campaignId,
-            status: CampaignMessageStatus.SCHEDULED
-        }).toArray();
-
+        const startTime = new Date();
         for (const campaignMessage of campaignMessages) {
             try {
                 const mail = await regularMailMaker.makeMail(campaignMessage);
                 await regularMailSender.sendMail(mail, campaignMessage._id);
                 //await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
-                log.verbose('Sender', 'Message sent and status updated for %s:%s', campaignMessage.list, campaignMessage.subscription);
+                //log.verbose('Sender', `Message ${counter} sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
+                counter += 1;
             } catch (error) {
                 console.log(error);
                 if (error instanceof SendConfigurationError) {
@@ -66,6 +92,8 @@ const { CampaignMessageStatus } = require('../../shared/campaigns');
                 }
             }
         }
+        const endTime = new Date();
+        console.log('TIME: ', (endTime - startTime)/1000);
     }
 
     async processQueuedMessages(queuedMessages) {

@@ -9,7 +9,7 @@ const { CampaignMessageErrorType, CampaignMessageStatus } = require('../../../..
  */
 class RegularMailSender extends MailSender {
     async sendMail(mail, campaignMessageID) {
-        log.verbose('RegularMailSender', `Starting to sending mail for ${mail.to.address} ...`);
+        //log.verbose('RegularMailSender', `Starting to sending mail for ${mail.to.address} ...`);
         /*
          * We set the campaign_message to SENT before the message is actually sent.
          * This is to avoid multiple delivery if by chance we run out of disk space
@@ -54,7 +54,7 @@ class RegularMailSender extends MailSender {
             }
             throw err;
         }
-        console.log(result);
+
         await this.mongodb.collection('campaign_messages')
             .updateOne({
                 _id: campaignMessageID

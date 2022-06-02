@@ -869,17 +869,26 @@ async function prepareCampaignMessages(campaignId) {
         await knex.raw('INSERT IGNORE INTO `campaign_messages` (`hash_email`, `subscription`, `campaign`, `list`, `send_configuration`, `status`) ' + subsQry.sql, subsQry.bindings);
 
         /* Synchronizing with MongoDB */
-        // TODO optimize
-        const messages = await knex('campaign_messages').where({
-            campaign: campaign.id,
-            list: cpgList.list,
-            status: CampaignMessageStatus.SCHEDULED
+        await knex.transaction(async tx => {
+            const CHUNK_SIZE = 1000;
+            let chunkMessages = [], offset = 0;
+            do {
+                chunkMessages = await tx('campaign_messages').where({
+                    campaign: campaign.id,
+                    list: cpgList.list,
+                    status: CampaignMessageStatus.SCHEDULED
+                }).offset(offset).limit(CHUNK_SIZE).map(message => {
+                    message._id = message.id;
+                    delete message.id;
+                    return message;
+                });
+
+                offset += chunkMessages.length;
+                if (chunkMessages.length != 0) {
+                    await getMongoDB().collection('campaign_messages').insertMany(chunkMessages);
+                }
+            } while (chunkMessages.length != 0);
         });
-        messages.map(message => {
-            message._id = message.id;
-            delete message.id;
-        });
-        await getMongoDB().collection('campaign_messages').insertMany(messages);
     }
 }
 
@@ -974,8 +983,9 @@ async function reset(context, campaignId) {
         });
 
         await tx('campaign_messages').where('campaign', campaignId).del();
-        /* TODO Synchronizing with MongoDB */
+        /* Synchronizing with MongoDB */
         await getMongoDB().collection('campaign_messages').deleteMany({ campaign: campaignId });
+        await getMongoDB().collection('tasks').deleteOne({ campaign: campaignId });
         await tx('campaign_links').where('campaign', campaignId).del();
         await tx('links').where('campaign', campaignId).del();
     });

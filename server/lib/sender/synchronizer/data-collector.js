@@ -17,7 +17,7 @@ const knex = require('../../knex');
 const log = require('../../log');
 const { enforce } = require('../../helpers');
 const { MessageType } = require('../../../../shared/messages');
-const { CampaignSource, CampaignMessageStatus } = require('../../../../shared/campaigns');
+const { CampaignSource, CampaignMessageStatus, CampaignStatus } = require('../../../../shared/campaigns');
 
 /**
  * DataCollector collects all needed data for processing one specific campaign from MySQL centralized database. Used by Synchronizer.
@@ -53,6 +53,8 @@ class DataCollector {
         /* Only for queued messages */
         if (isQueuedMessage(type)) {
             this.data.status = CampaignMessageStatus.SCHEDULED;
+        } else {
+            this.data.campaign.status = CampaignStatus.SENDING;
         }
 
         /* We have to convert Maps to JSON string in order to be able to send it to MongoDB */

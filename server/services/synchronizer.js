@@ -13,14 +13,15 @@ const Scheduler = require('../lib/sender/synchronizer/scheduler');
 const CHUNK_SIZE = 1000;
 
 /**
- * The main component for synchronizing between non-high-available centralized Mailtrain and high-available distributed Sender
- * and vice versa. It initializes Scheduler and DataCollector and then in loop it communicates with MongoDB database. It takes
- * data from DataCollector and then sends them to MongoDB database at once for ensuring high-availability.
+ * The main component for synchronizing between non-high-available centralized Mailtrain and high-available
+ * distributed Sender and vice versa. It initializes Scheduler and DataCollector and then in loop it communicates
+ * with MongoDB database. It takes data from DataCollector and then sends them to MongoDB database at once for
+ * ensuring high-availability.
  */
 class Synchronizer {
     constructor() {
         log.verbose('Synchronizer', 'Init synchronizer...');
-        /* Scheduled operations (Pause, Reset, Continue) from scheduler for synchronizing */
+        /* Scheduled campaign operations (Pause, Reset, Continue) from scheduler for synchronizing */
         this.synchronizingOperations = [];
         /* Scheduled campaigns from scheduler for synchronizing */
         this.synchronizingCampaigns = [];
@@ -37,16 +38,18 @@ class Synchronizer {
                 this.synchronizingQueuedMessages,
                 this.notifier
             );
-            log.verbose('Synchronizer', this);
             setImmediate(this.synchronizerLoop.bind(this));
         });
     }
 
+    /*
+     * The main infinite loop where synchronizer always tries to synchronize things from Mailtrain to MongoDB
+     * and then tries synchronize results from MongoDB backward to Mailtrain.
+     */
     async synchronizerLoop() {
         log.verbose('Synchronizer', 'Starting loop...');
 
         while (true) {
-            log.verbose('Synchronizer', 'Starting synchronizing...');
             try {
                 /* Mailtrain --> MongoDB */
                 await this.synchronizeScheduledOperations();
@@ -55,7 +58,7 @@ class Synchronizer {
                 /* Mailtrain --> MongoDB */
                 //await this.synchronizeScheduledQueuedMessages();
                 /* MongoDB --> Mailtrain */
-                await this.synchronizeSentCampaignMessagesFromMongoDB();
+                await this.synchronizeSendingCampaignsFromMongoDB();
                 /* MongoDB --> Mailtrain */
                 //await this.synchronizeSentQueuedMessagesFromMongoDB();
             } catch(error) {
@@ -66,6 +69,12 @@ class Synchronizer {
             await this.notifier.waitFor('taskAvailable');
         }
     }
+
+    /* Called by client when he does some campaign operations and we don't want to wait for the next periodic check. */
+    async callImmediatePeriodicCheck() {
+        await this.scheduler.periodicCheck();
+    }
+
     async selectScheduledOperation() {
         return this.synchronizingOperations.shift();
     }
@@ -88,13 +97,13 @@ class Synchronizer {
                 campaignId
             });
 
-            await this.sendCampaignToMongoDB(campaignData);
-            log.verbose('Synchronizer', 'Data successfully sent to MongoDB!');
+            await this.sendScheduledCampaignToMongoDB(campaignData);
+            log.verbose('Synchronizer', `New task with campaignId: ${campaignId} successfully sent to MongoDB!`);
             await this.updateCampaignStatus(campaignId, CampaignStatus.SENDING);
         }
     }
 
-    async sendCampaignToMongoDB(campaignData) {
+    async sendScheduledCampaignToMongoDB(campaignData) {
         //log.verbose('Synchronizer', `Sending data: ${JSON.stringify(campaignData, null, ' ')}`)
         this.mongodb.collection('tasks').insertOne(campaignData);
     }
@@ -153,14 +162,38 @@ class Synchronizer {
         this.mongodb.collection('queued').insertMany(queuedMessages);
     }
 
-    async synchronizeSentCampaignMessagesFromMongoDB() {
-        log.verbose('Synchronizer', 'Synchronizing sent campaign messages from MongoDB...');
+    async synchronizeSendingCampaignsFromMongoDB() {
+        await this.synchronizeSentCampaignMessagesFromMongoDB();
 
+        const finishedCampaigns = await this.mongodb.collection('tasks').find({
+            status: CampaignStatus.FINISHED,
+        }).limit(CHUNK_SIZE).toArray();
+
+        if (finishedCampaigns.length === 0) {
+            return;
+        }
+
+        for (const finishedCampaign of finishedCampaigns) {
+            const campaignId = finishedCampaign.campaign.id;
+            log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
+            await this.updateCampaignStatus(campaignId, CampaignStatus.FINISHED);
+        }
+
+        const deletingIds = finishedCampaigns.map(finishedCampaign => finishedCampaign._id);
+        await this.mongodb.collection('tasks').deleteMany({ _id: { $in: deletingIds } });
+    }
+
+    async synchronizeSentCampaignMessagesFromMongoDB() {
         const campaignMessages = await this.mongodb.collection('campaign_messages').find({
             status: { $in: [CampaignMessageStatus.SENT, CampaignMessageStatus.FAILED] },
             response: { $ne: null }
         }).limit(CHUNK_SIZE).toArray();
 
+        if (campaignMessages.length === 0) {
+            return;
+        }
+
+        log.verbose('Synchronizer', `Received ${campaignMessages.length} sent messages from MongoDB!`);
         for (const campaignMessage of campaignMessages) {
             if (campaignMessage.status === CampaignMessageStatus.FAILED) {
                 await knex('campaign_messages')
@@ -173,6 +206,7 @@ class Synchronizer {
                 await knex('campaign_messages')
                     .where({ id: campaignMessage._id })
                     .update({
+                        status: CampaignMessageStatus.SENT,
                         response: campaignMessage.response,
                         response_id: campaignMessage.responseId,
                         updated: new Date()
@@ -183,7 +217,7 @@ class Synchronizer {
         }
 
         const deletingIds = campaignMessages.map(campaignMessage => campaignMessage._id);
-        await this.mongodb.collection('campaign_messages').deleteMany({ id: { $in: deletingIds } });
+        await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
     }
 
     async synchronizeSentQueuedMessagesFromMongoDB() {
@@ -207,7 +241,7 @@ class Synchronizer {
         }
 
         const deletingIds = queuedMessages.map(queuedMessage => queuedMessage._id);
-        await this.mongodb.collection('queued').deleteMany({ id: { $in: deletingIds } });
+        await this.mongodb.collection('queued').deleteMany({ _id: { $in: deletingIds } });
     }
 
     async processSentTriggeredMessage() {
@@ -226,21 +260,20 @@ class Synchronizer {
         await knex('campaigns').where('id', campaign.id).increment('delivered');
     }
 
+   /*
+    * Insert an entry to test_messages. This allows us to remember test sends to lists that are not
+    * listed in the campaign - see the check in getMessage
+    */
     async processSentCampaignTestMessage() {
         try {
-            /*
-             * Insert an entry to test_messages. This allows us to remember test sends to lists that are not
-             * listed in the campaign - see the check in getMessage
-             */
             await knex('test_messages').insert({
                 campaign: campaign.id,
                 list: result.list.id,
                 subscription: result.subscriptionGrouped.id
             });
         } catch (error) {
-            if (error.code === 'ER_DUP_ENTRY') {
-                /* The entry is already there, so we can ignore this error */
-            } else {
+            /* The entry is already there, so we can ignore this error */
+            if (error.code !== 'ER_DUP_ENTRY') {
                 throw error;
             }
         }
@@ -255,9 +288,9 @@ class Synchronizer {
                     await knex.transaction(async tx => {
                         await files.unlockTx(tx, 'campaign', 'attachment', attachment.id);
                     });
-                } catch (err) {
+                } catch (error) {
                     log.error('MessageSender', `Error when unlocking attachment ${attachment.id} for ${result.email} (queuedId: ${queuedMessage.id})`);
-                    log.verbose(err.stack);
+                    log.verbose(error.stack);
                 }
             }
         }

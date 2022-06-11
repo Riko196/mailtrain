@@ -985,7 +985,7 @@ async function reset(context, campaignId) {
         await tx('campaign_messages').where('campaign', campaignId).del();
         /* Synchronizing with MongoDB */
         await getMongoDB().collection('campaign_messages').deleteMany({ campaign: campaignId });
-        await getMongoDB().collection('tasks').deleteOne({ campaign: campaignId });
+        await getMongoDB().collection('tasks').deleteMany({ 'campaign.id': campaignId });
         await tx('campaign_links').where('campaign', campaignId).del();
         await tx('links').where('campaign', campaignId).del();
     });

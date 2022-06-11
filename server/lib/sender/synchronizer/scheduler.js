@@ -47,6 +47,9 @@ class Scheduler {
     }
 
     scheduleCheck() {
+        /* This task means synchronizing new data from MongoDB */
+        this.notifier.notify('taskAvailable');
+
         /* noinspection JSIgnoredPromiseFromCall */
         this.scheduleCampaigns();
 

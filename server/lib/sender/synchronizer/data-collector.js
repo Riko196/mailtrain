@@ -3,7 +3,6 @@
 const config = require('../../config');
 const campaigns = require('../../../models/campaigns');
 const blacklist = require('../../../models/blacklist');
-const links = require('../../../models/links');
 const sendConfigurations = require('../../../models/send-configurations');
 const lists = require('../../../models/lists');
 const fields = require('../../../models/fields');
@@ -11,7 +10,6 @@ const files = require('../../../models/files');
 const templates = require('../../../models/templates');
 const subscriptions = require('../../../models/subscriptions');
 const settings = require('../../../models/settings');
-const { isQueuedMessage } = require('../../../models/queued');
 const contextHelpers = require('../../context-helpers');
 const knex = require('../../knex');
 const log = require('../../log');
@@ -47,11 +45,10 @@ class DataCollector {
             await this.collectAttachments(tx, query);
             await this.collectTemplates(tx, query);
         });
-        await this.collectLinks();
         await this.collectSettings(query);
 
         /* Only for queued messages */
-        if (isQueuedMessage(type)) {
+        if (this.isQueuedMessage(type)) {
             this.data.status = CampaignMessageStatus.SCHEDULED;
         } else {
             this.data.campaign.status = CampaignStatus.SENDING;
@@ -116,7 +113,7 @@ class DataCollector {
             addList(list);
         }
 
-        if (query.listCid && !this.data.listsByCid.has(query.listCid)) {
+        if (query.listCid && !listsByCid.has(query.listCid)) {
             const list = await lists.getByCidTx(tx, contextHelpers.getAdminContext(), query.listCid);
             addList(list);
         }
@@ -184,10 +181,6 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected template data: ${JSON.stringify(this.data.template, null, ' ')}`);
     }
 
-    async collectLinks() {
-        this.data.links = await knex('links').where('campaign', this.data.campaign.id);
-    }
-
     async collectSettings(query) {
         if (query.rssEntry !== undefined) {
             this.data.rssEntry = query.rssEntry;
@@ -206,6 +199,10 @@ class DataCollector {
         this.data.configItems = await settings.get(contextHelpers.getAdminContext(), ['pgpPrivateKey', 'pgpPassphrase']);
 
         // log.verbose('DataCollector', `Collected settings data: ${JSON.stringify(this.data.configItems, null, ' ')}`);
+    }
+
+    isQueuedMessage(messageType) {
+        return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST || messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
     }
 }
 

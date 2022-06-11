@@ -10,6 +10,7 @@ const subscriptions = require('./subscriptions');
 const contextHelpers = require('../lib/context-helpers');
 const { enforce } = require('../lib/helpers');
 const senders = require('../lib/senders');
+const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
 
 async function queueCampaignMessageTx(tx, sendConfigurationId, listId, subscriptionId, messageType, messageData) {
@@ -99,7 +100,16 @@ async function dropQueuedMessage(queuedMessage) {
 }
 
 async function getArchivedMessage(campaignCid, listCid, subscriptionCid, settings, isTest = false) {
-    const regularMailMaker = new RegularMailMaker({ type: MessageType.REGULAR, campaignCid, listCid, ...settings });
+    const dataCollector = new DataCollector();
+
+    const campaignData = await dataCollector.collectData({
+        type: MessageType.REGULAR,
+        campaignCid,
+        listCid,
+        ...settings
+    });
+
+    const regularMailMaker = new RegularMailMaker(campaignData);
 
     const campaign = regularMailMaker.campaign;
     const list = regularMailMaker.listsByCid[listCid];

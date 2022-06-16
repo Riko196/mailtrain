@@ -15,9 +15,12 @@ const bluebird = require('bluebird');
  * The main (abstract) class which takes a made mail for some specific subsriber and sends it to SMTP server.
  */
 class MailSender {
-    constructor(campaignData) {
+    constructor(campaignData, blacklisted) {
         Object.assign(this, campaignData);
         this.mongodb = getMongoDB();
+        /* email -> blacklisted */
+        this.blacklisted = blacklisted;
+        /* sendConfigurationID -> transport */
         this.transports = new Map();
     }
 
@@ -170,6 +173,16 @@ class MailSender {
             throw new Error('Invalid mail transport');
         }
 
+        if (config.nodemailer.testReal) {
+            transportOptions = {
+                service: config.nodemailer.service,
+                auth: {
+                  user: config.nodemailer.user,
+                  pass: config.nodemailer.password
+                }
+            };
+        }
+
         const transport = nodemailer.createTransport(transportOptions, config.nodemailer);
         transport.sendMailAsync = bluebird.promisify(transport.sendMail.bind(transport));
 
@@ -226,13 +239,9 @@ class MailSender {
     }
 
     async sendMail(mail) {
-        log.verbose('MailSender', `Starting to sending mail for ${mail.to.address} ...`);
-        const isOnBlacklist = await this.mongodb
-                    .collection('blacklist')
-                    .findOne({ email: mail.to.address });
-
-        if (isOnBlacklist) {
-            return;
+        //log.verbose('MailSender', `Starting to sending mail for ${mail.to.address} ...`);
+        if (this.blacklisted.get(mail.to)) {
+            return {};
         }
 
         const transport = await this.getOrCreateMailer(this.sendConfiguration);
@@ -243,7 +252,7 @@ class MailSender {
                 await transport.sendMassMail(mail) :
                 await transport.sendTransactionalMail(mail);
 
-            log.verbose('MailMaker', `response: ${info.response} messageId: ${info.messageId}`);
+            //log.verbose('MailSender', `response: ${info.response} messageId: ${info.messageId}`);
 
             return this.analyzeResponse(info);
         } catch (error) {

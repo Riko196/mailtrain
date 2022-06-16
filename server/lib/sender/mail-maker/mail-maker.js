@@ -1,7 +1,7 @@
 'use strict';
 
 const log = require('../../log');
-const { groupSubscription, getSubscriptionTableName } = require('../../../models/subscriptions');
+const { groupSubscription } = require('../../../models/subscriptions');
 const fields = require('../../../models/fields');
 const links = require('../../../models/links');
 const { getMongoDB } = require('../../mongodb');
@@ -19,9 +19,12 @@ const shortid = require('../../shortid');
  * The main (abstract) class which makes the whole mail for some specific subsriber.
  */
 class MailMaker {
-    constructor(campaignData) {
+    constructor(campaignData, subscribers) {
         Object.assign(this, campaignData);
         this.mongodb = getMongoDB();
+        /* listID:subscription -> subscriber */
+        this.subscribers = subscribers;
+        this.links = [];
         this.listsById = JSON.parse(this.listsById);
         this.listsByCid = JSON.parse(this.listsByCid);
         this.listsFieldsGrouped = JSON.parse(this.listsFieldsGrouped);
@@ -153,9 +156,7 @@ class MailMaker {
             let subscriptionGrouped = {};
             if (subData.subscriptionId) {
                 listId = subData.listId;
-                const subscriber = await this.mongodb
-                    .collection(getSubscriptionTableName(listId))
-                    .findOne({ _id: subData.subscriptionId });
+                const subscriber = this.subscribers.get(`${listId}:${subData.subscriptionId}`);
                 const groupedFieldsMap = {};
                 for (const field of this.listsFieldsGrouped[listId]) {
                     groupedFieldsMap[getFieldColumn(field)] = field;

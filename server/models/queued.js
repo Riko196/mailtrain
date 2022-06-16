@@ -99,6 +99,7 @@ async function dropQueuedMessage(queuedMessage) {
         .del();
 }
 
+/* TODO transfer it to different module */
 async function getArchivedMessage(campaignCid, listCid, subscriptionCid, settings, isTest = false) {
     const dataCollector = new DataCollector();
 

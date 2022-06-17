@@ -15,23 +15,13 @@ const bluebird = require('bluebird');
  * The main (abstract) class which takes a made mail for some specific subsriber and sends it to SMTP server.
  */
 class MailSender {
-    constructor(campaignData, blacklisted) {
-        Object.assign(this, campaignData);
+    constructor(sendConfiguration, configItems, isMassMail, blacklisted) {
         this.mongodb = getMongoDB();
+        this.sendConfiguration = sendConfiguration;
+        this.configItems = configItems;
+        this.isMassMail = isMassMail;
         /* email -> blacklisted */
         this.blacklisted = blacklisted;
-        /* sendConfigurationID -> transport */
-        this.transports = new Map();
-    }
-
-    async getOrCreateMailer(sendConfiguration) {
-        const transport = this.transports.get(sendConfiguration.id)
-            || await this.createTransport(sendConfiguration);
-        return transport.mailer;
-    }
-
-    invalidateMailer(sendConfigurationId) {
-        this.transports.delete(sendConfigurationId);
     }
 
     addDkimKeys(transport, mail) {
@@ -92,16 +82,6 @@ class MailSender {
         const mailerSettings = sendConfiguration.mailer_settings;
         const mailerType = sendConfiguration.mailer_type;
         const configItems = this.configItems;
-
-        const existingTransport = this.transports.get(sendConfiguration.id);
-
-        let existingListeners = [];
-        if (existingTransport) {
-            existingListeners = existingTransport.listeners('idle');
-            existingTransport.removeAllListeners('idle');
-            existingTransport.removeAllListeners('stream');
-            existingTransport.throttleWait = null;
-        }
 
         const logFunc = (...args) => {
             const level = args.shift();
@@ -191,11 +171,6 @@ class MailSender {
             passphrase: configItems.pgpPassphrase
         }));
 
-        if (existingListeners.length) {
-            log.info('Mail', 'Reattaching %s idle listeners', existingListeners.length);
-            existingListeners.forEach(listener => transport.on('idle', listener));
-        }
-
         let throttleWait;
 
         if (mailerType === MailerType.GENERIC_SMTP || mailerType === MailerType.ZONE_MTA) {
@@ -234,7 +209,6 @@ class MailSender {
             sendMassMail: async (mail, template) => await this.sendMailToSMTP(transport, mail)
         };
 
-        this.transports.set(sendConfiguration.id, transport);
         return transport;
     }
 
@@ -244,13 +218,17 @@ class MailSender {
             return {};
         }
 
-        const transport = await this.getOrCreateMailer(this.sendConfiguration);
-        await transport.throttleWait();
+        if (!this.transport) {
+            this.transport = await this.createTransport(this.sendConfiguration);
+        }
+
+        const transportMailer = this.transport.mailer;
+        await transportMailer.throttleWait();
 
         try {
             const info = this.isMassMail ?
-                await transport.sendMassMail(mail) :
-                await transport.sendTransactionalMail(mail);
+                await transportMailer.sendMassMail(mail) :
+                await transportMailer.sendTransactionalMail(mail);
 
             //log.verbose('MailSender', `response: ${info.response} messageId: ${info.messageId}`);
 

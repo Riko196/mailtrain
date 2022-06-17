@@ -56,11 +56,11 @@ class Synchronizer {
                 /* Mailtrain --> MongoDB */
                 await this.synchronizeScheduledCampaigns();
                 /* Mailtrain --> MongoDB */
-                //await this.synchronizeScheduledQueuedMessages();
+                await this.synchronizeScheduledQueuedMessages();
                 /* MongoDB --> Mailtrain */
                 await this.synchronizeSendingCampaignsFromMongoDB();
                 /* MongoDB --> Mailtrain */
-                //await this.synchronizeSentQueuedMessagesFromMongoDB();
+                await this.synchronizeSentQueuedMessagesFromMongoDB();
             } catch(error) {
                 log.error('Synchronizer', `Synchronizing failed with error: ${error.message}`);
                 log.verbose(error.stack);
@@ -82,12 +82,12 @@ class Synchronizer {
     async synchronizeScheduledOperations() {
     }
 
-    async selectScheduledCampaign() {
+    selectScheduledCampaign() {
         return this.synchronizingCampaigns.shift();
     }
 
     async synchronizeScheduledCampaigns() {
-        const campaignId = await this.selectScheduledCampaign();
+        const campaignId = this.selectScheduledCampaign();
 
         if (campaignId) {
             log.verbose('Synchronizer', `New task with campaignId: ${campaignId}`);
@@ -104,7 +104,6 @@ class Synchronizer {
     }
 
     async sendScheduledCampaignToMongoDB(campaignData) {
-        //log.verbose('Synchronizer', `Sending data: ${JSON.stringify(campaignData, null, ' ')}`)
         this.mongodb.collection('tasks').insertOne(campaignData);
     }
 
@@ -119,25 +118,33 @@ class Synchronizer {
         });
     }
 
-    async selectScheduledQueuedMessages() {
-        return this.synchronizingCampaigns.shift();
+    selectScheduledQueuedMessages() {
+        let scheduledQueuedMessages = [];
+        for (const [key, value] of this.synchronizingQueuedMessages) {
+            scheduledQueuedMessages = scheduledQueuedMessages.concat(value.splice(0, CHUNK_SIZE));
+            if (scheduledQueuedMessages.length > CHUNK_SIZE) {
+                break;
+            }
+        }
+        return scheduledQueuedMessages;
     }
 
     async synchronizeScheduledQueuedMessages() {
-        const scheduledQueuedMessages = await this.selectScheduledQueuedMessages();
+        const scheduledQueuedMessages = this.selectScheduledQueuedMessages();
 
-        if (scheduledQueuedMessages) {
+        if (scheduledQueuedMessages.length > 0) {
             log.verbose('Synchronizer', `New task with queued messages: ${scheduledQueuedMessages}`);
             const preparedQueuedMessages = [];
 
-            /* Collect all needed for each queued message for sending */
-            for (const queuedMessage of queuedMessages) {
+            /* Collect all needed data for each queued message prepared for sending */
+            for (const queuedMessage of scheduledQueuedMessages) {
                 const messageData = queuedMessage.data;
-
                 const collectedMessageData = await this.dataCollector.collectData({
                     type: queuedMessage.type,
                     campaignId: messageData.campaignId,
                     listId: messageData.listId,
+                    subscriptionId: messageData.subscriptionId,
+                    to: messageData.to,
                     sendConfigurationId: queuedMessage.send_configuration,
                     attachments: messageData.attachments,
                     html: messageData.html,
@@ -146,19 +153,20 @@ class Synchronizer {
                     tagLanguage: messageData.tagLanguage,
                     renderedHtml: messageData.renderedHtml,
                     renderedText: messageData.renderedText,
-                    rssEntry: messageData.rssEntry
+                    rssEntry: messageData.rssEntry,
+                    mergeTags: messageData.mergeTags,
+                    encryptionKeys: messageData.encryptionKeys
                 });
 
                 preparedQueuedMessages.push(collectedMessageData);
             }
 
             await this.sendQueuedMessagesToMongoDB(preparedQueuedMessages);
-            log.verbose('Synchronizer', 'Data successfully sent to MongoDB!');
+            log.verbose('Synchronizer', 'Queued messages successfully sent to MongoDB!');
         }
     }
 
-    async sendQueuedMesagesToMongoDB(queuedMessages) {
-        //log.verbose('Synchronizer', `Sending queued messages: ${JSON.stringify(campaignData, null, ' ')}`)
+    async sendQueuedMessagesToMongoDB(queuedMessages) {
         this.mongodb.collection('queued').insertMany(queuedMessages);
     }
 
@@ -223,20 +231,21 @@ class Synchronizer {
     async synchronizeSentQueuedMessagesFromMongoDB() {
         log.verbose('Synchronizer', 'Synchronizing sent queued messages from MongoDB...');
         const queuedMessages = await this.mongodb.collection('queued').find({
-            status: { $in: [CampaignMessageStatus.SENT] }
+            status: { $in: [CampaignMessageStatus.SENT, CampaignMessageStatus.FAILED] },
+            response: { $ne: null }
         }).limit(CHUNK_SIZE).toArray();
 
         for (const queuedMessage of queuedMessages) {
-            if (messageType === MessageType.TRIGGERED) {
-                await this.processSentTriggeredMessage()
+            if (queuedMessage.type === MessageType.TRIGGERED) {
+                await this.processSentTriggeredMessage(queuedMessage)
             }
 
-            if (campaign && messageType === MessageType.TEST) {
+            if (queuedMessage.campaign && queuedMessage.type === MessageType.TEST) {
                 await this.processSentCampaignTestMessage()
             }
 
-            if (msgData.attachments) {
-                await this.unlockAttachments(msgData.attachments);
+            if (queuedMessage.attachments) {
+                await this.unlockAttachments(queuedMessage.attachments);
             }
         }
 
@@ -244,32 +253,39 @@ class Synchronizer {
         await this.mongodb.collection('queued').deleteMany({ _id: { $in: deletingIds } });
     }
 
-    async processSentTriggeredMessage() {
-        await knex('campaign_messages').insert({
-            hash_email: result.subscriptionGrouped.hash_email,
-            subscription: result.subscriptionGrouped.id,
-            campaign: campaign.id,
-            list: result.list.id,
-            send_configuration: queuedMessage.send_configuration,
-            status: CampaignMessageStatus.SENT,
-            response: result.response,
-            response_id: result.response_id,
-            updated: new Date()
-        });
+    async processSentTriggeredMessage(triggeredMessage) {
+        try {
+            await knex('campaign_messages').insert({
+                campaign: triggeredMessage.campaign.id,
+                list: triggeredMessage.listId,
+                subscription: triggeredMessage.subscriptionId,
+                send_configuration: triggeredMessage.sendConfiguration.id,
+                status: CampaignMessageStatus.SENT,
+                response: triggeredMessage.response,
+                response_id: triggeredMessage.response_id,
+                updated: new Date(),
+                hash_email: triggeredMessage.hashEmail,
+            });
 
-        await knex('campaigns').where('id', campaign.id).increment('delivered');
+            await knex('campaigns').where('id', triggeredMessage.campaign.id).increment('delivered');
+        } catch (error) {
+            /* The entry is already there, so we can ignore this error */
+            if (error.code !== 'ER_DUP_ENTRY') {
+                throw error;
+            }
+        }
     }
 
    /*
     * Insert an entry to test_messages. This allows us to remember test sends to lists that are not
     * listed in the campaign - see the check in getMessage
     */
-    async processSentCampaignTestMessage() {
+    async processSentCampaignTestMessage(testMessage) {
         try {
             await knex('test_messages').insert({
-                campaign: campaign.id,
-                list: result.list.id,
-                subscription: result.subscriptionGrouped.id
+                campaign: testMessage.campaign.id,
+                list: testMessage.listId,
+                subscription: testMessage.subscriptionId
             });
         } catch (error) {
             /* The entry is already there, so we can ignore this error */
@@ -279,21 +295,24 @@ class Synchronizer {
         }
     }
 
+    /* Unlock all attachments (at semaphore) used in sent queued message. */
     async unlockAttachments(attachments) {
-        for (const attachment of attachments) {
+        attachments.forEach(async (attachment) => {
             /* This means that it is an attachment recorded in table files_campaign_attachment */
             if (attachment.id) {
                 try {
-                    /* We ignore any errors here because we already sent the message. Thus we have to mark it as completed to avoid sending it again.*/
+                    /* We ignore any errors here because we already sent the message. Thus we have to
+                     * mark it as completed to avoid sending it again. */
                     await knex.transaction(async tx => {
                         await files.unlockTx(tx, 'campaign', 'attachment', attachment.id);
                     });
                 } catch (error) {
-                    log.error('MessageSender', `Error when unlocking attachment ${attachment.id} for ${result.email} (queuedId: ${queuedMessage.id})`);
+                    log.error('Synchronizer',
+                        `Error when unlocking attachment ${attachment.id} for ${result.email} (queuedId: ${queuedMessage.id})`);
                     log.verbose(error.stack);
                 }
             }
-        }
+        });
     }
 }
 

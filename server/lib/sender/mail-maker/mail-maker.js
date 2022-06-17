@@ -19,8 +19,8 @@ const shortid = require('../../shortid');
  * The main (abstract) class which makes the whole mail for some specific subsriber.
  */
 class MailMaker {
-    constructor(campaignData, subscribers) {
-        Object.assign(this, campaignData);
+    constructor(taskData, subscribers) {
+        Object.assign(this, taskData);
         this.mongodb = getMongoDB();
         /* listID:subscription -> subscriber */
         this.subscribers = subscribers;

@@ -49,7 +49,7 @@ class DataCollector {
 
         /* Only for queued messages */
         if (this.isQueuedMessage(type)) {
-            this.data.status = CampaignMessageStatus.SCHEDULED;
+            this.collectAdditionalQueuedData(query);
         } else {
             this.data.campaign.status = CampaignStatus.SENDING;
         }
@@ -199,6 +199,16 @@ class DataCollector {
         this.data.configItems = await settings.get(contextHelpers.getAdminContext(), ['pgpPrivateKey', 'pgpPassphrase']);
 
         // log.verbose('DataCollector', `Collected settings data: ${JSON.stringify(this.data.configItems, null, ' ')}`);
+    }
+
+    collectAdditionalQueuedData(query) {
+        this.data.type = query.type;
+        this.data.status = CampaignMessageStatus.SCHEDULED;
+        this.data.listId = query.listId;
+        this.data.subscriptionId = query.subscriptionId;
+        this.data.to = query.to;
+        this.data.mergeTags = query.mergeTags;
+        this.data.encryptionKeys = query.encryptionKeys;
     }
 
     isQueuedMessage(messageType) {

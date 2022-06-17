@@ -8,8 +8,10 @@ const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
 const RegularMailSender = require('../lib/sender/mail-sender/regular-mail-sender');
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
+const { isQueuedMessage } = require('../models/queued');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
-const { CampaignStatus, CampaignMessageStatus} = require('../../shared/campaigns');
+const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
+const { MessageType } = require('../../shared/messages');
 const { getSubscriptionTableName } = require('../models/subscriptions');
 
 const CHUNK_SIZE = 100;
@@ -25,7 +27,7 @@ const CHUNK_SIZE = 100;
         while (true) {
             try {
                 await this.checkCampaignMessages();
-                //await this.checkQueuedMessages();
+                await this.checkQueuedMessages();
             } catch (error) {
                 console.error(error);
             }
@@ -49,7 +51,7 @@ const CHUNK_SIZE = 100;
         for (const [key, value] of listMap) {
             const listSubscribers = await this.mongodb.collection(getSubscriptionTableName(key)).find({
                 _id: { $in: value }
-            }).toArray()
+            }).toArray();
 
             listSubscribers.forEach(subscriber => {
                 subscribers.set(`${key}:${subscriber._id}`, subscriber);
@@ -118,20 +120,23 @@ const CHUNK_SIZE = 100;
     /* From chunk of campaign messages make mails and send them to SMTP server. */
     async processCampaignMessages(campaignData, campaignMessages) {
         //log.verbose('Sender', 'Start to processing regular campaign ...');
-
-        let counter = 0;
         const campaignId = campaignData.campaign.id;
         const subscribers = await this.getSubscribers(campaignMessages);
         const blacklisted = await this.getBlacklisted(subscribers);
         const regularMailMaker = new RegularMailMaker(campaignData, subscribers);
-        const regularMailSender = new RegularMailSender(campaignData, blacklisted);
-        const startTime = new Date();
+        const regularMailSender = new RegularMailSender(
+            campaignData.sendConfiguration,
+            campaignData.configItems,
+            campaignData.isMassEmail,
+            blacklisted
+        );
+
         for (const campaignMessage of campaignMessages) {
             try {
                 const mail = await regularMailMaker.makeMail(campaignMessage);
                 await regularMailSender.sendMail(mail, campaignMessage._id);
                 await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
-                //log.verbose('Sender', `Message ${counter} sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
+                log.verbose('Sender', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
             } catch (error) {
                 console.log(error);
                 if (error instanceof SendConfigurationError) {
@@ -143,53 +148,94 @@ const CHUNK_SIZE = 100;
                 }
             }
         }
-        const endTime = new Date();
-        console.log('TIME: ', (endTime - startTime)/1000);
 
-        //await this.mongodb.collection('links').updateMany({ _id: existing.id }, filteredEntity);
+        console.log(regularMailMaker.links);
+        /*if (regularMailMaker.links.length != 0) {
+            await this.mongodb.collection('links').updateMany(
+
+                regularMailMaker.links,
+                { upsert: true }
+            );
+        }*/
     }
 
     /*
-     * Check queued messages (TRIGGER, SUBSCRIPTION, TRANSACTIONAL, TEST) and if the queue
+     * Check queued messages (TRIGGERED, SUBSCRIPTION, TRANSACTIONAL, TEST) and if the queue
      * is not empty then send another remaining chunk of mails.
      */
     async checkQueuedMessages(){
         const chunkQueuedMessages = await this.mongodb.collection('queued').find({
             status: CampaignMessageStatus.SCHEDULED
         }).limit(CHUNK_SIZE).toArray();
+
+        if (chunkQueuedMessages.length !== 0) {
+            await this.processQueuedMessages(chunkQueuedMessages);
+        }
     };
+
+    /* Get triggered subscriber from triggered (queued) message. */
+    async getTriggeredSubscriber(triggeredMessage) {
+        const listId = triggeredMessage.listId;
+        const subscriptionId = triggeredMessage.subscriptionId;
+        /* listID:subscription -> subscriber */
+        const triggeredSubscriberMap = new Map();
+        const triggeredSubscriber = await this.mongodb.collection(getSubscriptionTableName(listId)).findOne({
+            _id: subscriptionId
+        });
+        triggeredSubscriberMap.set(`${listId}:${subscriptionId}`, triggeredSubscriber);
+        return triggeredSubscriberMap;
+    }
+
+    /* Return whether queuedMessage is triggered or test message. */
+    isTriggeredOrTest(queuedMessage) {
+        return (queuedMessage.type === MessageType.TRIGGERED || queuedMessage.type === MessageType.TEST) &&
+            queuedMessage.campaign && queuedMessage.listId && queuedMessage.subscriptionId;
+    }
 
     /* From chunk of queued messages make mails and send them to SMTP server. */
     async processQueuedMessages(queuedMessages) {
         log.verbose('Sender', 'Start to processing queued messages ...');
         for (const queuedMessage of queuedMessages) {
-            const messageData = queuedMessage.data;
-            const queuedMailMaker = new QueuedMailMaker(messageData);
-            const queuedMailSender = new QueuedMailSender(messageData);
-            const target = queuedMailMaker.makeTarget(messageData);
+            const subscriber = this.isTriggeredOrTest(queuedMessage) ?
+                await this.getTriggeredSubscriber(queuedMessage) :
+                new Map();
+
+            const blacklisted = this.isTriggeredOrTest(queuedMessage) ?
+                await this.getBlacklisted(subscriber) :
+                new Map();
+
+            const queuedMailMaker = new QueuedMailMaker(queuedMessage, subscriber);
+            const queuedMailSender = new QueuedMailSender(
+                queuedMessage.sendConfiguration,
+                queuedMessage.configItems,
+                queuedMessage.isMassEmail,
+                blacklisted
+            );
+            const target = queuedMailMaker.makeTarget(queuedMessage);
 
             try {
-                const mail = await queuedMailMaker.makeMail(queue)
-                await messageSender.sendQueuedMessage(queuedMessage);
-
-                if ((messageType === MessageType.TRIGGERED || messageType === MessageType.TEST) && messageData.campaignId && messageData.listId && messageData.subscriptionId) {
-                    await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, messageData.campaignId, messageData.listId, messageData.subscriptionId);
+                const mail = await queuedMailMaker.makeMail(queuedMessage);
+                await queuedMailSender.sendMail(mail, queuedMessage._id);
+                if (this.isTriggeredOrTest(queuedMessage)) {
+                    await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT,
+                         queuedMessage.campaign.campaignId, queuedMessage.listId, queuedMessage.subscriptionId);
                 }
-
                 log.verbose('Senders', `Message sent and status updated for ${target}`);
-            } catch (err) {
-                if (err instanceof mailers.SendConfigurationError) {
-                    log.error('Senders', `Sending message to ${target} failed with error: ${err.message}. Will retry the message if within retention interval.`);
+            } catch (error) {
+                if (error instanceof SendConfigurationError) {
+                    log.error('Senders',
+                        `Sending message to ${target} failed with error: ${error.message}. Will retry the message if within retention interval.`);
                     withErrors = true;
                     break;
                 } else {
-                    log.error('Senders', `Sending message to ${target} failed with error: ${err.message}. Dropping the message.`);
-                    log.verbose(err.stack);
+                    log.error('Senders',
+                        `Sending message to ${target} failed with error: ${error.message}. Dropping the message.`);
+                    log.verbose(error.stack);
 
                     try {
-                        await messageSender.dropQueuedMessage(queuedMessage);
-                    } catch (err) {
-                        log.error(err.stack);
+                        //await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
+                    } catch (error) {
+                        log.error(error.stack);
                     }
                 }
             }

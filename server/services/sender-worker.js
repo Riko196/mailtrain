@@ -29,7 +29,7 @@ const CHUNK_SIZE = 100;
                 await this.checkCampaignMessages();
                 await this.checkQueuedMessages();
             } catch (error) {
-                console.error(error);
+                log.error('SenderWorker', error);
             }
         }
     }
@@ -79,6 +79,29 @@ const CHUNK_SIZE = 100;
         });
 
         return blacklisted;
+    }
+
+    /* Send or update links in MongoDB which were found during sending mails. */
+    async sendOrUpdateLinks(links) {
+        const queries = []
+
+        links.forEach(link => {
+            const query = {
+                updateOne: {
+                    filter: { $and: [{ campaign: link.campaign }, { url: link.url }] },
+                    update: {
+                        $set: {},
+                        $setOnInsert: link
+                    },
+                    upsert: true
+                }
+            };
+            queries.push(query);
+        })
+
+        if (queries.length != 0) {
+            await this.mongodb.collection('links').bulkWrite(queries, { ordered: false });
+        }
     }
 
     /*
@@ -137,7 +160,7 @@ const CHUNK_SIZE = 100;
                 const mail = await regularMailMaker.makeMail(campaignMessage);
                 await regularMailSender.sendMail(mail, campaignMessage._id);
                 await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
-                //log.verbose('SenderWorker', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
+                log.verbose('SenderWorker', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
             } catch (error) {
                 console.log(error);
                 if (error instanceof SendConfigurationError) {
@@ -151,13 +174,8 @@ const CHUNK_SIZE = 100;
         }
         const end = new Date();
         console.log('TIME: ', (end - start) / 1000);
-        if (regularMailMaker.links.length != 0) {
-            await this.mongodb.collection('links').updateMany(
-                {}
-                regularMailMaker.links,
-                { upsert: true }
-            );
-        }
+
+        await this.sendOrUpdateLinks(regularMailMaker.links);
     }
 
     /*
@@ -240,6 +258,8 @@ const CHUNK_SIZE = 100;
                     }
                 }
             }
+
+            await this.sendOrUpdateLinks(queuedMailMaker.links);
         }
     }
 }

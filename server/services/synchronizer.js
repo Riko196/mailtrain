@@ -8,6 +8,7 @@ const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaign
 const activityLog = require('../lib/activity-log');
 const { CampaignActivityType } = require('../../shared/activity-log');
 const log = require('../lib/log');
+const { LinkStatus, insertIfNotExists } = require('../models/links');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const Scheduler = require('../lib/sender/synchronizer/scheduler');
 
@@ -170,6 +171,7 @@ class Synchronizer {
     }
 
     async synchronizeSendingCampaignsFromMongoDB() {
+        await this.synchronizeLinksFromMongoDB();
         await this.synchronizeSentCampaignMessagesFromMongoDB();
 
         const finishedCampaigns = await this.mongodb.collection('tasks').find({
@@ -188,6 +190,24 @@ class Synchronizer {
 
         const deletingIds = finishedCampaigns.map(finishedCampaign => finishedCampaign._id);
         await this.mongodb.collection('tasks').deleteMany({ _id: { $in: deletingIds } });
+    }
+
+    async synchronizeLinksFromMongoDB() {
+        const links = await this.mongodb.collection('links').find({
+            status: LinkStatus.UNSYNCHRONIZED
+        }).limit(CHUNK_SIZE).toArray();
+
+        if (links.length === 0) {
+            return;
+        }
+
+        log.verbose('Synchronizer', `Received ${links.length} links from MongoDB!`);
+
+        for (const link of links) {
+            await this.mongodb.collection('links').updateOne({ _id: link._id }, { $set: { status: LinkStatus.SYNCHRONIZED } });
+            delete link._id, link.status;
+            await insertIfNotExists(link);
+        }
     }
 
     async synchronizeSentCampaignMessagesFromMongoDB() {

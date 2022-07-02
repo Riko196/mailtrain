@@ -18,6 +18,11 @@ const LinkId = {
     GENERAL_CLICK: 0
 };
 
+const LinkStatus = {
+    UNSYNCHRONIZED: 0,
+    SYNCHRONIZED: 1
+};
+
 async function resolve(linkCid) {
     return await knex('links').where('cid', linkCid).select(['id', 'url']).first();
 }
@@ -103,6 +108,30 @@ async function countLink(remoteIp, userAgent, campaignCid, listCid, subscription
     });
 }
 
+/* Called only from Synchronizer with database query. */
+async function insertIfNotExists(link) {
+    const foundLink = await knex('links').select(['id', 'cid']).where({
+        campaign: link.campaign,
+        url: link.url
+    }).first();
+
+    if (!foundLink) {
+        try {
+            const ids = await knex('links').insert(link);
+        } catch (error) {
+            if (error.code === 'ER_DUP_ENTRY') {
+                const foundLink = await knex('links').select(['id', 'cid']).where({
+                    campaign: link.campaign,
+                    url: link.url
+                }).first();
+
+                enforce(foundLink);
+            }
+        }
+    }
+}
+
+/* Called only from SenderWorker without database query. */
 function addOrGet(campaignId, url, links) {
     const link = links.find(link => link.campaign === campaignId && link.url === url);
 
@@ -112,7 +141,8 @@ function addOrGet(campaignId, url, links) {
         links.push({
             campaign: campaignId,
             cid,
-            url
+            url,
+            status: LinkStatus.UNSYNCHRONIZED
         });
 
         return {
@@ -124,6 +154,7 @@ function addOrGet(campaignId, url, links) {
     }
 }
 
+/* Called only from SenderWorker without database query. */
 function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById, list, subscription, links) {
     if ((campaign.open_tracking_disabled && campaign.click_tracking_disabled) || !source || !source.trim()) {
         // tracking is disabled, do not modify the message
@@ -173,7 +204,9 @@ function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById
 }
 
 module.exports.LinkId = LinkId;
+module.exports.LinkStatus = LinkStatus;
 module.exports.resolve = resolve;
 module.exports.countLink = countLink;
+module.exports.insertIfNotExists = insertIfNotExists;
 module.exports.addOrGet = addOrGet;
 module.exports.updateLinks = updateLinks;

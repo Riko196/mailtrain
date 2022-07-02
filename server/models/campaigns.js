@@ -19,7 +19,7 @@ const { SubscriptionStatus } = require('../../shared/lists');
 const { MessageType } = require('../../shared/messages');
 const subscriptions = require('./subscriptions');
 const segments = require('./segments');
-const senders = require('../lib/senders');
+const sender = require('../lib/sender/sender');
 const links = require('./links');
 const feedcheck = require('../lib/feedcheck');
 const contextHelpers = require('../lib/context-helpers');
@@ -944,8 +944,8 @@ async function _changeStatus(context, campaignId, permittedCurrentStates, newSta
 
         await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, {status: newState});
     });
-    // TODO Should I call it?
-    // senders.scheduleCheck();
+
+    sender.scheduleCheck();
 }
 
 
@@ -1133,8 +1133,8 @@ async function testSend(context, data) {
             await processSubscriber(data.sendConfigurationId, list.id, subscriber.id, messageData);
         }
     });
-    // TODO Should I call it?
-    // senders.scheduleCheck();
+
+    sender.scheduleCheck();
 }
 
 async function getRssPreview(context, campaignCid, listCid, subscriptionCid) {

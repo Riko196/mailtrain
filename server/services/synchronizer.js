@@ -1,6 +1,7 @@
 'use strict';
 
 const { connectToMongoDB, getMongoDB } = require('../lib/mongodb');
+const config = require('../lib/config');
 const knex = require('../lib/knex');
 const { MessageType } = require('../../shared/messages');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
@@ -30,16 +31,14 @@ class Synchronizer {
         this.notifier = new Notifier();
         this.dataCollector = new DataCollector();
 
-        /* Connect to the MongoDB and accomplish setup */
-        connectToMongoDB().then(() => {
-            this.mongodb = getMongoDB();
-            this.scheduler = new Scheduler(
-                this.synchronizingCampaigns,
-                this.synchronizingQueuedMessages,
-                this.notifier
-            );
-            setImmediate(this.synchronizerLoop.bind(this));
-        });
+        /* Get MongoDB connection */
+        this.mongodb = getMongoDB();
+        this.scheduler = new Scheduler(
+            this.synchronizingCampaigns,
+            this.synchronizingQueuedMessages,
+            this.notifier
+        );
+        setImmediate(this.synchronizerLoop.bind(this));
     }
 
     /*
@@ -71,7 +70,7 @@ class Synchronizer {
     }
 
     /* Called by client when he does some campaign operations and we don't want to wait for the next periodic check. */
-    async callImmediatePeriodicCheck() {
+    async callImmediateScheduleCheck() {
         await this.scheduler.periodicCheck();
     }
 
@@ -229,7 +228,7 @@ class Synchronizer {
     }
 
     async synchronizeSentQueuedMessagesFromMongoDB() {
-        log.verbose('Synchronizer', 'Synchronizing sent queued messages from MongoDB...');
+        //log.verbose('Synchronizer', 'Synchronizing sent queued messages from MongoDB...');
         const queuedMessages = await this.mongodb.collection('queued').find({
             status: { $in: [CampaignMessageStatus.SENT, CampaignMessageStatus.FAILED] },
             response: { $ne: null }
@@ -350,4 +349,31 @@ class Notifier {
     }
 }
 
-new Synchronizer();
+/* The method which is called as first when the synchronizer process is spawned by mailtrain. */
+async function spawnSynchronizer() {
+    /* Connect to the MongoDB and accomplish setup */
+    await connectToMongoDB();
+    const synchronizer = new Synchronizer();
+
+    process.on('message', msg => {
+        if (msg) {
+            const type = msg.type;
+
+            if (type === 'schedule-check') {
+                /* noinspection JSIgnoredPromiseFromCall */
+                synchronizer.callImmediateScheduleCheck();
+            }
+        }
+    });
+
+    if (config.title) {
+        process.title = config.title + ': synchronizer';
+    }
+
+    process.send({
+        type: 'synchronizer-started'
+    });
+}
+
+/* noinspection JSIgnoredPromiseFromCall */
+spawnSynchronizer();

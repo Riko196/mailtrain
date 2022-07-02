@@ -14,7 +14,7 @@ const testServer = require('./services/test-server');
 const postfixBounceServer = require('./services/postfix-bounce-server');
 const tzupdate = require('./services/tzupdate');
 const dbcheck = require('./lib/dbcheck');
-const senders = require('./lib/senders');
+const sender = require('./lib/sender/sender');
 const reportProcessor = require('./lib/report-processor');
 const executor = require('./lib/executor');
 const privilegeHelpers = require('./lib/privilege-helpers');
@@ -114,8 +114,7 @@ async function init() {
 
     await importer.spawn();
     await feedcheck.spawn();
-    // TODO set up new Sender
-    // await senders.spawn();
+    await sender.spawn();
 
     triggers.start();
     gdprCleanup.start();

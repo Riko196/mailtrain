@@ -9,7 +9,7 @@ const fields = require('./fields');
 const subscriptions = require('./subscriptions');
 const contextHelpers = require('../lib/context-helpers');
 const { enforce } = require('../lib/helpers');
-const senders = require('../lib/senders');
+const sender = require('../lib/sender/sender');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
 
@@ -69,8 +69,7 @@ async function queueSubscriptionMessage(sendConfigurationId, to, subject, encryp
         data: JSON.stringify(msgData)
     });
 
-    /* TODO Should I call it ? */
-    // senders.scheduleCheck();
+    sender.scheduleCheck();
 }
 
 async function queueAPITransactionalMessageTx(tx, sendConfigurationId, email, subject, html, text, tagLanguage, mergeTags, attachments) {

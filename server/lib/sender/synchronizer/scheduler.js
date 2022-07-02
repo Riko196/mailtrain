@@ -19,30 +19,23 @@ class Scheduler {
     constructor(synchronizingCampaigns, sendConfigurationMessageQueue, notifier) {
         log.info('Scheduler', 'Init scheduler...');
 
-        /* Setup synchronizing camapaigns to scheduled status again */
-        knex('campaigns')
-            .whereIn('status', [CampaignStatus.SYNCHRONIZING])
-            .update({ status: CampaignStatus.SCHEDULED })
-            .then(() => {
-                this.synchronizingCampaigns = synchronizingCampaigns;
-                this.sendConfigurationMessageQueue = sendConfigurationMessageQueue;
-                this.notifier = notifier;
-                /* sendConfigurationId -> {retryCount, postponeTill} */
-                this.sendConfigurationStatuses = new Map();
-                /* campaignId -> sendConfigurationId */
-                this.sendConfigurationIdByCampaignId = new Map();
-                /* Mutexes */
-                this.queuedSchedulerRunning = false;
-                this.campaignSchedulerRunning = false;
-                /* Start periodically schedule every needed campaigns */
-                this.periodicCheck();
-            });
+        this.synchronizingCampaigns = synchronizingCampaigns;
+        this.sendConfigurationMessageQueue = sendConfigurationMessageQueue;
+        this.notifier = notifier;
+        /* sendConfigurationId -> {retryCount, postponeTill} */
+        this.sendConfigurationStatuses = new Map();
+        /* campaignId -> sendConfigurationId */
+        this.sendConfigurationIdByCampaignId = new Map();
+        /* Mutexes */
+        this.queuedSchedulerRunning = false;
+        this.campaignSchedulerRunning = false;
+        /* Start periodically schedule every needed campaigns */
+        this.periodicCheck();
     }
 
     periodicCheck() {
         /* noinspection JSIgnoredPromiseFromCall */
         this.scheduleCheck();
-        log.verbose('Scheduler', 'Periodick check...');
         setTimeout(this.periodicCheck.bind(this), CHECK_PERIOD);
     }
 

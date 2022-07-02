@@ -3,10 +3,10 @@
 const fork = require('./fork').fork;
 const log = require('./log');
 const path = require('path');
-const senders = require('./senders');
+const sender = require('./sender/sender');
 const bluebird = require('bluebird');
 const feedparser = require('feedparser-promised');
-const {getPublicUrl} = require('./urls');
+const { getPublicUrl } = require('./urls');
 
 let messageTid = 0;
 let feedcheckProcess;
@@ -25,8 +25,7 @@ function spawn(callback) {
                 log.info('Feed', 'Feedcheck process started');
                 return callback();
             } else if (msg.type === 'entries-added') {
-                // TODO Should I call it?
-                // senders.scheduleCheck();
+                sender.scheduleCheck();
             }
         }
     });

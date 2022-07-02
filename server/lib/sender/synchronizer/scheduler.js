@@ -16,10 +16,11 @@ const CHUNK_SIZE = 1000;
  * Scheduler which periodically checks all kinds of campaigns and queued messages and prepares them for next processing.
  */
 class Scheduler {
-    constructor(synchronizingCampaigns, sendConfigurationMessageQueue, notifier) {
+    constructor(synchronizingPausingCampaigns, synchronizingScheduledCampaigns, sendConfigurationMessageQueue, notifier) {
         log.info('Scheduler', 'Init scheduler...');
 
-        this.synchronizingCampaigns = synchronizingCampaigns;
+        this.synchronizingPausingCampaigns = synchronizingPausingCampaigns;
+        this.synchronizingScheduledCampaigns = synchronizingScheduledCampaigns;
         this.sendConfigurationMessageQueue = sendConfigurationMessageQueue;
         this.notifier = notifier;
         /* sendConfigurationId -> {retryCount, postponeTill} */
@@ -182,11 +183,6 @@ class Scheduler {
         this.campaignSchedulerRunning = true;
 
         try {
-            /* Setup pausing campaigns to paused status */
-            await knex('campaigns')
-                .where('status', CampaignStatus.PAUSING)
-                .update({ status: CampaignStatus.PAUSED });
-
             /* Finish old campaigns */
             const nowDate = new Date();
             const now = nowDate.valueOf();
@@ -198,12 +194,20 @@ class Scheduler {
                 .where('campaigns.start_at', '<', expirationThreshold)
                 .update({ status: CampaignStatus.FINISHED });
 
-            /* TODO ensure pausing campaign */
             const pausingCampaigns = await knex('campaigns')
                 .whereIn('campaigns.type', [CampaignType.REGULAR, CampaignType.RSS_ENTRY])
                 .where('campaigns.status', CampaignStatus.PAUSING)
                 .select(['id'])
                 .forUpdate();
+
+            for (const pausingCampaign of pausingCampaigns) {
+                const campaignId = pausingCampaign.id;
+                this.synchronizingPausingCampaigns.push(campaignId);
+            }
+
+            if (pausingCampaigns.length != 0) {
+                this.notifier.notify('taskAvailable');
+            }
 
             while (true) {
                 let campaignId = 0;
@@ -223,7 +227,7 @@ class Scheduler {
                         log.verbose('Scheduler', `Scheduled campaign with campaignId: ${scheduledCampaign}`);
                         await tx('campaigns')
                             .where('id', scheduledCampaign.id)
-                            .update({ status: CampaignStatus.SYNCHRONIZING});
+                            .update({ status: CampaignStatus.SYNCHRONIZING });
                         await activityLog.logEntityActivity('campaign',
                             CampaignActivityType.STATUS_CHANGE,
                             scheduledCampaign.id,
@@ -303,7 +307,7 @@ class Scheduler {
                     }
                 }
 
-                this.synchronizingCampaigns.push(campaignId);
+                this.synchronizingScheduledCampaigns.push(campaignId);
                 log.verbose('Scheduler', `Notifying synchronizer about campaignId: ${campaignId}`);
                 this.notifier.notify('taskAvailable');
                 return;

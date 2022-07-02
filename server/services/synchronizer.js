@@ -23,10 +23,10 @@ const CHUNK_SIZE = 1000;
 class Synchronizer {
     constructor() {
         log.verbose('Synchronizer', 'Init synchronizer...');
-        /* Scheduled campaign operations (Pause, Reset, Continue) from scheduler for synchronizing */
-        this.synchronizingOperations = [];
+        /* Pausing campaigns from scheduler for synchronizing */
+        this.synchronizingPausingCampaigns = [];
         /* Scheduled campaigns from scheduler for synchronizing */
-        this.synchronizingCampaigns = [];
+        this.synchronizingScheduledCampaigns = [];
         /* sendConfigurationId -> [queuedMessage] */
         this.synchronizingQueuedMessages = new Map();
         this.notifier = new Notifier();
@@ -35,7 +35,8 @@ class Synchronizer {
         /* Get MongoDB connection */
         this.mongodb = getMongoDB();
         this.scheduler = new Scheduler(
-            this.synchronizingCampaigns,
+            this.synchronizingPausingCampaigns,
+            this.synchronizingScheduledCampaigns,
             this.synchronizingQueuedMessages,
             this.notifier
         );
@@ -52,7 +53,7 @@ class Synchronizer {
         while (true) {
             try {
                 /* Mailtrain --> MongoDB */
-                await this.synchronizeScheduledOperations();
+                await this.synchronizePausingCampaigns();
                 /* Mailtrain --> MongoDB */
                 await this.synchronizeScheduledCampaigns();
                 /* Mailtrain --> MongoDB */
@@ -75,36 +76,47 @@ class Synchronizer {
         await this.scheduler.periodicCheck();
     }
 
-    async selectScheduledOperation() {
-        return this.synchronizingOperations.shift();
+    selectPausingCampaign() {
+        return this.synchronizingPausingCampaigns.shift();
     }
 
-    async synchronizeScheduledOperations() {
-    }
-
-    selectScheduledCampaign() {
-        return this.synchronizingCampaigns.shift();
-    }
-
-    async synchronizeScheduledCampaigns() {
-        const campaignId = this.selectScheduledCampaign();
+    async synchronizePausingCampaigns() {
+        const campaignId = this.selectPausingCampaign();
 
         if (campaignId) {
-            log.verbose('Synchronizer', `New task with campaignId: ${campaignId}`);
+            log.verbose('Synchronizer', `New task with pausing campaignId: ${campaignId}`);
             /* Collect all needed campaign data for sending */
             const campaignData = await this.dataCollector.collectData({
                 type: MessageType.REGULAR,
                 campaignId
             });
 
-            await this.sendScheduledCampaignToMongoDB(campaignData);
-            log.verbose('Synchronizer', `New task with campaignId: ${campaignId} successfully sent to MongoDB!`);
-            await this.updateCampaignStatus(campaignId, CampaignStatus.SENDING);
+            /* We rather delete a task from MongoDB although we have only paused it because it will be scheduled again if a client presses continue  */
+            await this.mongodb.collection('tasks').deleteMany({ 'campaign.id': campaignId });;
+            log.verbose('Synchronizer', `Pausing campaignId: ${campaignId} successfully synchronized with MongoDB!`);
+            await this.updateCampaignStatus(campaignId, CampaignStatus.PAUSED);
         }
     }
 
-    async sendScheduledCampaignToMongoDB(campaignData) {
-        this.mongodb.collection('tasks').insertOne(campaignData);
+    selectScheduledCampaign() {
+        return this.synchronizingScheduledCampaigns.shift();
+    }
+
+    async synchronizeScheduledCampaigns() {
+        const campaignId = this.selectScheduledCampaign();
+
+        if (campaignId) {
+            log.verbose('Synchronizer', `New task with scheduled campaignId: ${campaignId}`);
+            /* Collect all needed campaign data for sending */
+            const campaignData = await this.dataCollector.collectData({
+                type: MessageType.REGULAR,
+                campaignId
+            });
+
+            await this.mongodb.collection('tasks').insertOne(campaignData);
+            log.verbose('Synchronizer', `New task with campaignId: ${campaignId} successfully sent to MongoDB!`);
+            await this.updateCampaignStatus(campaignId, CampaignStatus.SENDING);
+        }
     }
 
     async updateCampaignStatus(campaignId, status) {

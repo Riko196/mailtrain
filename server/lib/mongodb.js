@@ -24,7 +24,7 @@ async function connectToMongoDB() {
         /* Return mailtrain database */
         mongodb = mongoDBClient.db('mailtrain');
     } catch (error) {
-        log.verbose('MongoDB', error);
+        log.error('MongoDB', error);
     }
 }
 

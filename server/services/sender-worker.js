@@ -19,9 +19,9 @@ const CHUNK_SIZE = 100;
 /**
  * The main component of distributed system for making and sending mails.
  */
- class SenderNode {
+ class SenderWorker {
     /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
-    async senderNodeLoop() {
+    async senderWorkerLoop() {
         await connectToMongoDB();
         this.mongodb = getMongoDB();
         while (true) {
@@ -90,7 +90,7 @@ const CHUNK_SIZE = 100;
             'campaign.status': CampaignStatus.SENDING
         }).toArray();
 
-        //log.verbose('Sender', `Received taskList: ${taskList}`);
+        //log.verbose('SenderWorker', `Received taskList: ${taskList}`);
 
         for (const task of taskList) {
             const campaignId = task.campaign.id;
@@ -112,14 +112,15 @@ const CHUNK_SIZE = 100;
                 continue;
             }
 
-            //log.verbose('Sender', `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
+            //log.verbose('SenderWorker', `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
             await this.processCampaignMessages(task, chunkCampaignMessages);
         };
     };
 
     /* From chunk of campaign messages make mails and send them to SMTP server. */
     async processCampaignMessages(campaignData, campaignMessages) {
-        //log.verbose('Sender', 'Start to processing regular campaign ...');
+        //log.verbose('SenderWorker', 'Start to processing regular campaign ...');
+        const start = new Date();
         const campaignId = campaignData.campaign.id;
         const subscribers = await this.getSubscribers(campaignMessages);
         const blacklisted = await this.getBlacklisted(subscribers);
@@ -136,27 +137,27 @@ const CHUNK_SIZE = 100;
                 const mail = await regularMailMaker.makeMail(campaignMessage);
                 await regularMailSender.sendMail(mail, campaignMessage._id);
                 await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
-                log.verbose('Sender', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
+                //log.verbose('SenderWorker', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
             } catch (error) {
                 console.log(error);
                 if (error instanceof SendConfigurationError) {
-                    log.error('Sender',
+                    log.error('SenderWorker',
                         `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. Will retry the message if within retention interval.`);
                     break;
                 } else {
-                    log.error('Sender', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}.`);
+                    log.error('SenderWorker', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}.`);
                 }
             }
         }
-
-        console.log(regularMailMaker.links);
-        /*if (regularMailMaker.links.length != 0) {
+        const end = new Date();
+        console.log('TIME: ', (end - start) / 1000);
+        if (regularMailMaker.links.length != 0) {
             await this.mongodb.collection('links').updateMany(
-
+                {}
                 regularMailMaker.links,
                 { upsert: true }
             );
-        }*/
+        }
     }
 
     /*
@@ -194,7 +195,7 @@ const CHUNK_SIZE = 100;
 
     /* From chunk of queued messages make mails and send them to SMTP server. */
     async processQueuedMessages(queuedMessages) {
-        log.verbose('Sender', 'Start to processing queued messages ...');
+        log.verbose('SenderWorker', 'Start to processing queued messages ...');
         for (const queuedMessage of queuedMessages) {
             const subscriber = this.isTriggeredOrTest(queuedMessage) ?
                 await this.getTriggeredSubscriber(queuedMessage) :
@@ -220,15 +221,15 @@ const CHUNK_SIZE = 100;
                     await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT,
                          queuedMessage.campaign.campaignId, queuedMessage.listId, queuedMessage.subscriptionId);
                 }
-                log.verbose('Senders', `Message sent and status updated for ${target}`);
+                log.verbose('SenderWorker', `Message sent and status updated for ${target}`);
             } catch (error) {
                 if (error instanceof SendConfigurationError) {
-                    log.error('Senders',
+                    log.error('SenderWorker',
                         `Sending message to ${target} failed with error: ${error.message}. Will retry the message if within retention interval.`);
                     withErrors = true;
                     break;
                 } else {
-                    log.error('Senders',
+                    log.error('SenderWorker',
                         `Sending message to ${target} failed with error: ${error.message}. Dropping the message.`);
                     log.verbose(error.stack);
 
@@ -243,4 +244,4 @@ const CHUNK_SIZE = 100;
     }
 }
 
-new SenderNode().senderNodeLoop();
+new SenderWorker().senderWorkerLoop();

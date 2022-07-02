@@ -885,7 +885,14 @@ async function prepareCampaignMessages(campaignId) {
 
                 offset += chunkMessages.length;
                 if (chunkMessages.length != 0) {
-                    await getMongoDB().collection('campaign_messages').insertMany(chunkMessages);
+                    try {
+                        await getMongoDB().collection('campaign_messages').insertMany(chunkMessages, { ordered: false });
+                    } catch (error) {
+                        /* We can ignore problem with duplicates */
+                        if (error.code !== 11000) {
+                            throw error;
+                        }
+                    }
                 }
             } while (chunkMessages.length != 0);
         });

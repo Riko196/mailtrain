@@ -26,9 +26,7 @@ Note that some of these may be already obsolete...
 - Aggregated RSS campaigns
 
 ### Sender
-- Handle duplicated lists in campaign
-- Resend FAILED messages
-- Synchronizing campaign operations from Client with MongoDB (Pause, Continue, Reset, ...)
+- Postpone FAILED messages
 - Make Sender parallel
 - Make Sender high-available
 - Add hash_email field to queued

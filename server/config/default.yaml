@@ -128,7 +128,7 @@ mysql:
   # The timezone configured on the MySQL server. This can be 'local', 'Z', or an offset in the form +HH:MM or -HH:MM
   # If the MySQL server runs on the same server as Mailtrain, use 'local'
   timezone: local
-  
+
 verp:
   # Enable to start an MX server that detects bounced messages using VERP
   # In most cases you do not want to use it
@@ -190,7 +190,8 @@ nodemailer:
 queue:
   # How many parallel sender processes to spawn
   processes: 2
-
+  # Defines range <0, maxRange) according to which we distribute messages among workers
+  maxRange: 4294967296
   # For how long (in seconds) to try to send an email before Mailtrain stops to trying. An email can normally
   # be sent out almost immediately. However if the send configuration is not correct or the mail server is not reachable,
   # Mailtrain will keep retrying until the email expires.

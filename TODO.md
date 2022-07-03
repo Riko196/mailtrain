@@ -27,6 +27,5 @@ Note that some of these may be already obsolete...
 
 ### Sender
 - Postpone FAILED messages
-- Make Sender parallel
 - Make Sender high-available
 - Add hash_email field to queued

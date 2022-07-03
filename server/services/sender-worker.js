@@ -1,6 +1,7 @@
 'use strict';
 
 const { connectToMongoDB, getMongoDB } = require('../lib/mongodb');
+const config = require('../lib/config');
 const log = require('../lib/log');
 const activityLog = require('../lib/activity-log');
 const { CampaignTrackerActivityType } = require('../../shared/activity-log');
@@ -15,15 +16,38 @@ const { MessageType } = require('../../shared/messages');
 const { getSubscriptionTableName } = require('../models/subscriptions');
 
 const CHUNK_SIZE = 100;
+const WORKERS = config.queue.processes;
+const MAX_RANGE = config.queue.maxRange;
+
+const SenderWorkerState = {
+    IDLE: 0,
+    SENDING: 1,
+    DEAD: 2
+};
 
 /**
  * The main component of distributed system for making and sending mails.
  */
  class SenderWorker {
+    constructor() {
+        const myArgs = process.argv.slice(2);
+        this.workerId = myArgs[0];
+        this.workerState = SenderWorkerState.IDLE;
+        this.rangeFrom = Math.floor(MAX_RANGE / WORKERS)  * this.workerId;
+        this.rangeTo = Math.floor(MAX_RANGE / WORKERS)  * (this.workerId + 1);
+
+        if (this.rangeTo > MAX_RANGE) {
+            this.rangeTo = MAX_RANGE;
+        }
+
+        connectToMongoDB().then(() => {
+            this.mongodb = getMongoDB();
+            this.senderWorkerLoop();
+        });
+    }
+
     /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
     async senderWorkerLoop() {
-        await connectToMongoDB();
-        this.mongodb = getMongoDB();
         while (true) {
             try {
                 await this.checkCampaignMessages();
@@ -81,9 +105,9 @@ const CHUNK_SIZE = 100;
         return blacklisted;
     }
 
-    /* Send or update links in MongoDB which were found during sending mails. */
-    async sendOrUpdateLinks(links) {
-        const queries = []
+    /* Insert if links not exist in MongoDB which were found during making mails. */
+    async insertLinksIfNotExist(links) {
+        const queries = [];
 
         links.forEach(link => {
             const query = {
@@ -119,21 +143,9 @@ const CHUNK_SIZE = 100;
             const campaignId = task.campaign.id;
             const chunkCampaignMessages = await this.mongodb.collection('campaign_messages').find({
                 campaign: campaignId,
-                status: CampaignMessageStatus.SCHEDULED
+                status: CampaignMessageStatus.SCHEDULED,
+                hash_email_uint: { $gte: this.rangeFrom, $lt: this.rangeTo }
             }).limit(CHUNK_SIZE).toArray();
-
-            if (chunkCampaignMessages.length === 0) {
-                await this.mongodb.collection('tasks')
-                    .updateOne({
-                        _id: task._id
-                    }, {
-                        $set: {
-                            status: CampaignStatus.FINISHED,
-                            updated: new Date()
-                        }
-                    });
-                continue;
-            }
 
             //log.verbose('SenderWorker', `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
             await this.processCampaignMessages(task, chunkCampaignMessages);
@@ -175,7 +187,7 @@ const CHUNK_SIZE = 100;
         const end = new Date();
         console.log('TIME: ', (end - start) / 1000);
 
-        await this.sendOrUpdateLinks(regularMailMaker.links);
+        await this.insertLinksIfNotExist(regularMailMaker.links);
     }
 
     /*
@@ -259,9 +271,9 @@ const CHUNK_SIZE = 100;
                 }
             }
 
-            await this.sendOrUpdateLinks(queuedMailMaker.links);
+            await this.insertLinksIfNotExist(queuedMailMaker.links);
         }
     }
 }
 
-new SenderWorker().senderWorkerLoop();
+new SenderWorker();

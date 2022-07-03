@@ -43,6 +43,13 @@ class Synchronizer {
         setImmediate(this.synchronizerLoop.bind(this));
     }
 
+    /* Returns true if there is no available task. */
+    noTaskAvailable() {
+        return !this.synchronizingPausingCampaigns.length &&
+             !this.synchronizingScheduledCampaigns.length &&
+             !this.synchronizingQueuedMessages.size;
+    }
+
     /*
      * The main infinite loop where synchronizer always tries to synchronize things from Mailtrain to MongoDB
      * and then tries synchronize results from MongoDB backward to Mailtrain.
@@ -62,12 +69,14 @@ class Synchronizer {
                 await this.synchronizeSendingCampaignsFromMongoDB();
                 /* MongoDB --> Mailtrain */
                 await this.synchronizeSentQueuedMessagesFromMongoDB();
+
+                if (this.noTaskAvailable()) {
+                    await this.notifier.waitFor('taskAvailable');
+                }
             } catch(error) {
                 log.error('Synchronizer', `Synchronizing failed with error: ${error.message}`);
                 log.verbose(error.stack);
             }
-
-            await this.notifier.waitFor('taskAvailable');
         }
     }
 
@@ -85,12 +94,6 @@ class Synchronizer {
 
         if (campaignId) {
             log.verbose('Synchronizer', `New task with pausing campaignId: ${campaignId}`);
-            /* Collect all needed campaign data for sending */
-            const campaignData = await this.dataCollector.collectData({
-                type: MessageType.REGULAR,
-                campaignId
-            });
-
             /* We rather delete a task from MongoDB although we have only paused it because it will be scheduled again if a client presses continue  */
             await this.mongodb.collection('tasks').deleteMany({ 'campaign.id': campaignId });;
             log.verbose('Synchronizer', `Pausing campaignId: ${campaignId} successfully synchronized with MongoDB!`);
@@ -186,22 +189,20 @@ class Synchronizer {
         await this.synchronizeLinksFromMongoDB();
         await this.synchronizeSentCampaignMessagesFromMongoDB();
 
-        const finishedCampaigns = await this.mongodb.collection('tasks').find({
-            status: CampaignStatus.FINISHED,
-        }).limit(CHUNK_SIZE).toArray();
+        /* Find FINISHED campaigns and remove them from tasks */
+        const sendingCampaigns = await this.mongodb.collection('tasks').find({}).limit(CHUNK_SIZE).toArray();
+        for (const sendingCampaign of sendingCampaigns) {
+            const campaignId = sendingCampaign.campaign.id;
+            const remainingCampaignMessages = await this.mongodb.collection('campaign_messages').find({
+                campaign: campaignId
+            }).limit(CHUNK_SIZE).toArray();
 
-        if (finishedCampaigns.length === 0) {
-            return;
+            if (!remainingCampaignMessages.length) {
+                log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
+                await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
+                await this.updateCampaignStatus(campaignId, CampaignStatus.FINISHED);
+            }
         }
-
-        for (const finishedCampaign of finishedCampaigns) {
-            const campaignId = finishedCampaign.campaign.id;
-            log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
-            await this.updateCampaignStatus(campaignId, CampaignStatus.FINISHED);
-        }
-
-        const deletingIds = finishedCampaigns.map(finishedCampaign => finishedCampaign._id);
-        await this.mongodb.collection('tasks').deleteMany({ _id: { $in: deletingIds } });
     }
 
     async synchronizeLinksFromMongoDB() {

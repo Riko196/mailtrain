@@ -8,7 +8,8 @@ module.exports = {
     filterObject,
     castToInteger,
     normalizeEmail,
-    hashEmail
+    hashEmail,
+    hashToUint32
 };
 
 function enforce(condition, message) {
@@ -56,6 +57,21 @@ function normalizeEmail(email) {
 }
 
 function hashEmail(email) {
-    return crypto.createHash('sha512').update(normalizeEmail(email)).digest("base64");
+    return crypto.createHash('sha512').update(normalizeEmail(email)).digest('base64');
 }
 
+function hashToUint32(hash) {
+    let buffer = Buffer.from(hash, 'base64');
+    let result = 0;
+    let i = 0;
+
+    for (const byte of buffer) {
+        result += (byte << (8 * (4 - i - 1))) >>> 0;
+        i++;
+        if (i > 3) {
+            break;
+        }
+    }
+
+    return result;
+}

@@ -6,7 +6,7 @@ const hasher = require('node-object-hash')();
 const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const shortid = require('../lib/shortid');
-const { enforce, filterObject } = require('../lib/helpers');
+const { enforce, filterObject, hashToUint32 } = require('../lib/helpers');
 const shares = require('./shares');
 const namespaceHelpers = require('../lib/namespace-helpers');
 const files = require('./files');
@@ -879,6 +879,7 @@ async function prepareCampaignMessages(campaignId) {
                     status: CampaignMessageStatus.SCHEDULED
                 }).offset(offset).limit(CHUNK_SIZE).map(message => {
                     message._id = message.id;
+                    message.hash_email_uint = hashToUint32(message.hash_email);
                     delete message.id;
                     return message;
                 });

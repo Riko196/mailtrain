@@ -8,15 +8,15 @@ const files = require('./files');
 const fields = require('./fields');
 const subscriptions = require('./subscriptions');
 const contextHelpers = require('../lib/context-helpers');
-const { enforce } = require('../lib/helpers');
+const { enforce, hashEmail } = require('../lib/helpers');
 const sender = require('../lib/sender/sender');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
-const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
+const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker');
 
 async function queueCampaignMessageTx(tx, sendConfigurationId, listId, subscriptionId, messageType, messageData) {
     enforce(messageType === MessageType.TRIGGERED || messageType === MessageType.TEST);
 
-    const msgData = {...messageData};
+    const msgData = { ...messageData };
 
     if (msgData.attachments) {
         for (const attachment of messageData.attachments) {
@@ -27,6 +27,9 @@ async function queueCampaignMessageTx(tx, sendConfigurationId, listId, subscript
     msgData.listId = listId;
     msgData.subscriptionId = subscriptionId;
 
+    const subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subscriptionId);
+    msgData.hash_email = hashEmail(subscriptionGrouped.email);
+    
     await tx('queued').insert({
         send_configuration: sendConfigurationId,
         type: messageType,
@@ -59,6 +62,7 @@ async function queueSubscriptionMessage(sendConfigurationId, to, subject, encryp
         renderedHtml: html,
         renderedText: text,
         to,
+        hash_email: hashEmail(to),
         subject,
         encryptionKeys
     };
@@ -77,6 +81,7 @@ async function queueAPITransactionalMessageTx(tx, sendConfigurationId, email, su
         to: {
             address: email
         },
+        hash_email: hashEmail(email),
         html,
         text,
         tagLanguage,
@@ -109,10 +114,10 @@ async function getArchivedMessage(campaignCid, listCid, subscriptionCid, setting
         ...settings
     });
 
-    const regularMailMaker = new RegularMailMaker(campaignData);
+    const campaignMailMaker = new CampaignMailMaker(campaignData);
 
-    const campaign = regularMailMaker.campaign;
-    const list = regularMailMaker.listsByCid[listCid];
+    const campaign = campaignMailMaker.campaign;
+    const list = campaignMailMaker.listsByCid[listCid];
 
     const subscriptionGrouped = await subscriptions.getByCid(contextHelpers.getAdminContext(), list.id, subscriptionCid, true, isTest);
 
@@ -142,10 +147,10 @@ async function getArchivedMessage(campaignCid, listCid, subscriptionCid, setting
         throw new Error('Message not found');
     }
 
-    const flds = regularMailMaker.listsFieldsGrouped[list.id];
-    const mergeTags = fields.getMergeTags(flds, subscriptionGrouped, regularMailMaker.getExtraTags());
+    const flds = campaignMailMaker.listsFieldsGrouped[list.id];
+    const mergeTags = fields.getMergeTags(flds, subscriptionGrouped, campaignMailMaker.getExtraTags());
 
-    return await regularMailMaker.makeMessage(mergeTags, list, subscriptionGrouped, false);
+    return await campaignMailMaker.makeMessage(mergeTags, list, subscriptionGrouped, false);
 }
 
 function isQueuedMessage(messageType) {

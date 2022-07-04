@@ -36,6 +36,7 @@ class Scheduler {
 
     periodicCheck() {
         /* noinspection JSIgnoredPromiseFromCall */
+        log.info('Scheduler', 'Periodic check...');
         this.scheduleCheck();
         setTimeout(this.periodicCheck.bind(this), CHECK_PERIOD);
     }

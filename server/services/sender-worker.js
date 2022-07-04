@@ -5,11 +5,10 @@ const config = require('../lib/config');
 const log = require('../lib/log');
 const activityLog = require('../lib/activity-log');
 const { CampaignTrackerActivityType } = require('../../shared/activity-log');
-const RegularMailMaker = require('../lib/sender/mail-maker/regular-mail-maker');
-const RegularMailSender = require('../lib/sender/mail-sender/regular-mail-sender');
+const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker');
+const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-sender');
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
-const { isQueuedMessage } = require('../models/queued');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
 const { MessageType } = require('../../shared/messages');
@@ -159,8 +158,8 @@ const SenderWorkerState = {
         const campaignId = campaignData.campaign.id;
         const subscribers = await this.getSubscribers(campaignMessages);
         const blacklisted = await this.getBlacklisted(subscribers);
-        const regularMailMaker = new RegularMailMaker(campaignData, subscribers);
-        const regularMailSender = new RegularMailSender(
+        const campaignMailMaker = new CampaignMailMaker(campaignData, subscribers);
+        const campaignMailSender = new CampaignMailSender(
             campaignData.sendConfiguration,
             campaignData.configItems,
             campaignData.isMassEmail,
@@ -169,8 +168,8 @@ const SenderWorkerState = {
 
         for (const campaignMessage of campaignMessages) {
             try {
-                const mail = await regularMailMaker.makeMail(campaignMessage);
-                await regularMailSender.sendMail(mail, campaignMessage._id);
+                const mail = await campaignMailMaker.makeMail(campaignMessage);
+                await campaignMailSender.sendMail(mail, campaignMessage._id);
                 await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
                 log.verbose('SenderWorker', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
             } catch (error) {
@@ -187,7 +186,7 @@ const SenderWorkerState = {
         const end = new Date();
         console.log('TIME: ', (end - start) / 1000);
 
-        await this.insertLinksIfNotExist(regularMailMaker.links);
+        await this.insertLinksIfNotExist(campaignMailMaker.links);
     }
 
     /*
@@ -195,8 +194,22 @@ const SenderWorkerState = {
      * is not empty then send another remaining chunk of mails.
      */
     async checkQueuedMessages(){
+        /* Processing queued campaign messages (TRIGGERED, TEST) */
+        const chunkQueuedCampaignMessages = await this.mongodb.collection('queued').find({
+            status: CampaignMessageStatus.SCHEDULED,
+            type: { $in: [MessageType.TRIGGERED, MessageType.TEST] },
+            hash_email_uint: { $gte: this.rangeFrom, $lt: this.rangeTo }
+        }).limit(CHUNK_SIZE).toArray();
+
+        if (chunkQueuedCampaignMessages.length !== 0) {
+            await this.processCampaignMessages(chunkQueuedMessages);
+        }
+
+        /* Processing queued not campaign messages (API_TRANSACTIONAL, SUBSCRIPTION) */
         const chunkQueuedMessages = await this.mongodb.collection('queued').find({
-            status: CampaignMessageStatus.SCHEDULED
+            status: CampaignMessageStatus.SCHEDULED,
+            type: { $in: [MessageType.API_TRANSACTIONAL, MessageType.SUBSCRIPTION] },
+            hash_email_uint: { $gte: this.rangeFrom, $lt: this.rangeTo }
         }).limit(CHUNK_SIZE).toArray();
 
         if (chunkQueuedMessages.length !== 0) {
@@ -204,53 +217,21 @@ const SenderWorkerState = {
         }
     };
 
-    /* Get triggered subscriber from triggered (queued) message. */
-    async getTriggeredSubscriber(triggeredMessage) {
-        const listId = triggeredMessage.listId;
-        const subscriptionId = triggeredMessage.subscriptionId;
-        /* listID:subscription -> subscriber */
-        const triggeredSubscriberMap = new Map();
-        const triggeredSubscriber = await this.mongodb.collection(getSubscriptionTableName(listId)).findOne({
-            _id: subscriptionId
-        });
-        triggeredSubscriberMap.set(`${listId}:${subscriptionId}`, triggeredSubscriber);
-        return triggeredSubscriberMap;
-    }
-
-    /* Return whether queuedMessage is triggered or test message. */
-    isTriggeredOrTest(queuedMessage) {
-        return (queuedMessage.type === MessageType.TRIGGERED || queuedMessage.type === MessageType.TEST) &&
-            queuedMessage.campaign && queuedMessage.listId && queuedMessage.subscriptionId;
-    }
-
     /* From chunk of queued messages make mails and send them to SMTP server. */
     async processQueuedMessages(queuedMessages) {
         log.verbose('SenderWorker', 'Start to processing queued messages ...');
         for (const queuedMessage of queuedMessages) {
-            const subscriber = this.isTriggeredOrTest(queuedMessage) ?
-                await this.getTriggeredSubscriber(queuedMessage) :
-                new Map();
-
-            const blacklisted = this.isTriggeredOrTest(queuedMessage) ?
-                await this.getBlacklisted(subscriber) :
-                new Map();
-
-            const queuedMailMaker = new QueuedMailMaker(queuedMessage, subscriber);
+            const queuedMailMaker = new QueuedMailMaker(queuedMessage);
             const queuedMailSender = new QueuedMailSender(
                 queuedMessage.sendConfiguration,
                 queuedMessage.configItems,
-                queuedMessage.isMassEmail,
-                blacklisted
+                queuedMessage.isMassEmail
             );
             const target = queuedMailMaker.makeTarget(queuedMessage);
 
             try {
                 const mail = await queuedMailMaker.makeMail(queuedMessage);
                 await queuedMailSender.sendMail(mail, queuedMessage._id);
-                if (this.isTriggeredOrTest(queuedMessage)) {
-                    await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT,
-                         queuedMessage.campaign.campaignId, queuedMessage.listId, queuedMessage.subscriptionId);
-                }
                 log.verbose('SenderWorker', `Message sent and status updated for ${target}`);
             } catch (error) {
                 if (error instanceof SendConfigurationError) {
@@ -264,7 +245,7 @@ const SenderWorkerState = {
                     log.verbose(error.stack);
 
                     try {
-                        //await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
+                        // await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
                     } catch (error) {
                         log.error(error.stack);
                     }

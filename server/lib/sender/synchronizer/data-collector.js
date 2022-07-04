@@ -28,12 +28,14 @@ class DataCollector {
 
         const type = query.type;
         await knex.transaction(async tx => {
+            /* if is campaign message */
             if (type === MessageType.REGULAR || type === MessageType.TRIGGERED || type === MessageType.TEST) {
                 this.data.isMassMail = true;
 
                 await this.collectCampaign(tx, query);
                 await this.collectSendConfiguration(tx, query);
                 await this.collectLists(tx, query);
+            /* if is queued not campaign message */
             } else if (type === MessageType.SUBSCRIPTION || type === MessageType.API_TRANSACTIONAL) {
                 this.data.isMassMail = false;
 

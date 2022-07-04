@@ -15,13 +15,11 @@ const bluebird = require('bluebird');
  * The main (abstract) class which takes a made mail for some specific subsriber and sends it to SMTP server.
  */
 class MailSender {
-    constructor(sendConfiguration, configItems, isMassMail, blacklisted) {
+    constructor(sendConfiguration, configItems, isMassMail) {
         this.mongodb = getMongoDB();
         this.sendConfiguration = sendConfiguration;
         this.configItems = configItems;
         this.isMassMail = isMassMail;
-        /* email -> blacklisted */
-        this.blacklisted = blacklisted;
     }
 
     addDkimKeys(transport, mail) {
@@ -214,10 +212,6 @@ class MailSender {
 
     async sendMail(mail) {
         //log.verbose('MailSender', `Starting to sending mail for ${mail.to.address} ...`);
-        if (this.blacklisted.get(mail.to)) {
-            return {};
-        }
-
         if (!this.transport) {
             this.transport = await this.createTransport(this.sendConfiguration);
         }

@@ -2,12 +2,10 @@
 
 const { MailSender } = require('./mail-sender');
 const log = require('../../log');
-const { CampaignMessageErrorType, CampaignMessageStatus } = require('../../../../shared/campaigns');
-const { MessageType } = require('../../../../shared/messages');
-const { getMongoDB } = require('../../mongodb');
+const { CampaignMessageStatus } = require('../../../../shared/campaigns');
 
 /**
- * The class which inherits from MailSender and is responsible for sending mails of QUEUED messages.
+ * The class which inherits from MailSender and is responsible for sending mails of queued not campaign (API_TRANSACTIONAL, SUBSCRIPTION) messages.
  */
 class QueuedMailSender extends MailSender {
     async sendMail(mail, queuedMessageId) {

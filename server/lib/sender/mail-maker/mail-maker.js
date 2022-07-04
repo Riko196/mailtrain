@@ -1,17 +1,12 @@
 'use strict';
 
 const log = require('../../log');
-const { groupSubscription } = require('../../../models/subscriptions');
-const fields = require('../../../models/fields');
 const links = require('../../../models/links');
 const { getMongoDB } = require('../../mongodb');
 const { CampaignSource, CampaignMessageErrorType } = require('../../../../shared/campaigns');
-const { toNameTagLangauge, getFieldColumn } = require('../../../../shared/lists');
 const tools = require('../../tools');
 const htmlToText = require('html-to-text');
 const request = require('request-promise');
-const { getPublicUrl } = require('../../urls');
-const libmime = require('libmime');
 const { enforce } = require('../../helpers');
 const shortid = require('../../shortid');
 
@@ -19,17 +14,12 @@ const shortid = require('../../shortid');
  * The main (abstract) class which makes the whole mail for some specific subsriber.
  */
 class MailMaker {
-    constructor(taskData, subscribers) {
+    constructor(taskData) {
         Object.assign(this, taskData);
         this.mongodb = getMongoDB();
-        /* listID:subscription -> subscriber */
-        this.subscribers = subscribers;
-        this.links = [];
-        this.listsById = JSON.parse(this.listsById);
-        this.listsByCid = JSON.parse(this.listsByCid);
-        this.listsFieldsGrouped = JSON.parse(this.listsFieldsGrouped);
     }
 
+    /* Make html and text part of the mail. */
     async makeMessage(mergeTags, list, subscriptionGrouped, replaceDataImgs) {
         const message = { html: '', text: '', renderTags: false };
 
@@ -112,153 +102,25 @@ class MailMaker {
         return message;
     }
 
-    getExtraTags() {
-        const tags = {};
-
-        if (this.rssEntry) {
-            const rssEntry = this.rssEntry;
-            tags.RSS_ENTRY_TITLE = rssEntry.title;
-            tags.RSS_ENTRY_DATE = rssEntry.date;
-            tags.RSS_ENTRY_LINK = rssEntry.link;
-            tags.RSS_ENTRY_CONTENT = rssEntry.content;
-            tags.RSS_ENTRY_SUMMARY = rssEntry.summary;
-            tags.RSS_ENTRY_IMAGE_URL = rssEntry.imageUrl;
-            tags.RSS_ENTRY_CUSTOM_TAGS = rssEntry.customTags;
-        }
-
-        return tags;
+    /* Abstract method for making mail from message */
+    async makeMail(data) {
     }
 
-    /*
-        Accepted combinations of subData:
-
-        Option #1
-        - listId
-        - subscriptionId
-        - mergeTags [optional, used only when campaign / html+text is provided]
-
-        Option #2:
-        - to ... email / { name, address }
-        - encryptionKeys [optional]
-        - mergeTags [used only when campaign / html+text is provided]
-     */
-    async makeMail(subData) {
-        const mail = { envelope: false, sender: false, headers: {}, listHeader: false, encryptionKeys: [] };
-
-
-        const sendConfiguration = this.sendConfiguration;
-
-        let mergeTags = subData.mergeTags;
-        let message;
-        /* Regular campaign */
-        if (subData.listId) {
-            let listId;
-            let subscriptionGrouped = {};
-            if (subData.subscriptionId) {
-                listId = subData.listId;
-                const subscriber = this.subscribers.get(`${listId}:${subData.subscriptionId}`);
-                const groupedFieldsMap = {};
-                for (const field of this.listsFieldsGrouped[listId]) {
-                    groupedFieldsMap[getFieldColumn(field)] = field;
-                }
-
-                groupSubscription(groupedFieldsMap, subscriber);
-                subscriptionGrouped = subscriber;
-            }
-
-            const list = this.listsById[listId];
-            const mailFields = this.listsFieldsGrouped[list.id];
-
-            if (!mergeTags) {
-                mergeTags = fields.getMergeTags(mailFields, subscriptionGrouped, this.getExtraTags());
-            }
-
-            for (const field of mailFields) {
-                if (field.type === 'gpg' && mergeTags[field.key]) {
-                    mail.encryptionKeys.push(mergeTags[field.key].trim());
-                }
-            }
-
-            message = await this.makeMessage(mergeTags, list, subscriptionGrouped, true);
-
-            let listUnsubscribe = null;
-            if (!list.listunsubscribe_disabled) {
-                listUnsubscribe = this.campaign && this.campaign.unsubscribe_url
-                    ? tools.formatCampaignTemplate(this.campaign.unsubscribe_url, this.tagLanguage, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped)
-                    : getPublicUrl('/subscription/' + list.cid + '/unsubscribe/' + subscriptionGrouped.cid);
-            }
-
-            mail.to = {
-                name: list.to_name === null ? undefined : tools.formatCampaignTemplate(list.to_name, toNameTagLangauge, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped),
-                address: subscriptionGrouped.email
-            };
-
-            mail.subject = this.subject;
-
-            if (this.tagLanguage) {
-                mail.subject = tools.formatCampaignTemplate(this.subject, this.tagLanguage, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped);
-            }
-
-            mail.headers = {
-                'List-ID': {
-                    prepared: true,
-                    value: libmime.encodeWords(list.name) + ' <' + list.cid + '.' + getPublicUrl() + '>'
-                }
-            };
-
-            if (this.campaign) {
-                const campaignAddress = [this.campaign.cid, list.cid, subscriptionGrouped.cid].join('.');
-
-                if (this.useVerp) {
-                    mail.envelope = {
-                        from: campaignAddress + '@' + this.sendConfiguration.verp_hostname,
-                        to: subscriptionGrouped.email
-                    };
-                }
-
-                if (this.useVerpSenderHeader) {
-                    mail.sender = campaignAddress + '@' + this.sendConfiguration.verp_hostname;
-                }
-
-                mail.headers['x-fbl'] = campaignAddress;
-                mail.headers['x-msys-api'] = JSON.stringify({
-                    campaign_id: campaignAddress
-                });
-                mail.headers['x-smtpapi'] = JSON.stringify({
-                    unique_args: {
-                        campaign_id: campaignAddress
-                    }
-                });
-                mail.headers['x-mailgun-variables'] = JSON.stringify({
-                    campaign_id: campaignAddress
-                });
-            }
-
-            mail.listHeader = {
-                unsubscribe: listUnsubscribe
-            };
-
-        } else if (subData.to) {
-            mail.to = subData.to;
-            mail.subject = this.subject;
-            mail.encryptionKeys = subData.encryptionKeys;
-            message = await this.makeMessage(mergeTags);
+    getOverridable(key) {
+        if (this.campaign && this.sendConfiguration[key + '_overridable'] && this.campaign[key + '_override'] !== null) {
+            return this.campaign[key + '_override'] || '';
+        } else {
+            return this.sendConfiguration[key] || '';
         }
+    }
 
-        const getOverridable = key => {
-            if (this.campaign && this.sendConfiguration[key + '_overridable'] && this.campaign[key + '_override'] !== null) {
-                return this.campaign[key + '_override'] || '';
-            } else {
-                return this.sendConfiguration[key] || '';
-            }
-        };
-
+    accomplishMail(mail, message) {
         Object.assign(mail, message);
         mail.from = {
-            name: getOverridable('from_name'),
-            address: getOverridable('from_email')
+            name: this.getOverridable('from_name'),
+            address: this.getOverridable('from_email')
         };
-        mail.replyTo = getOverridable('reply_to');
+        mail.replyTo = this.getOverridable('reply_to');
         mail.xMailer = this.sendConfiguration.x_mailer ? this.sendConfiguration.x_mailer : false;
         return mail;
     }

@@ -620,7 +620,7 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
         filteredEntity.updated = new Date();
         await tx(getSubscriptionTableName(listId)).where('id', existing.id).update(filteredEntity);
         /* Synchronizing with MongoDB */
-        await getMongoDB().collection(getSubscriptionTableName(listId)).updateMany({ _id: existing.id }, filteredEntity);
+        await getMongoDB().collection(getSubscriptionTableName(listId)).updateOne({ _id: existing.id }, { $set: filteredEntity });
 
         if ('status' in filteredEntity) {
             let countIncrement = 0;
@@ -872,7 +872,7 @@ async function updateManaged(context, listId, cid, entity) {
 
         await tx(getSubscriptionTableName(listId)).where('cid', cid).update(update);
         /* Synchronizing with MongoDB */
-        await getMongoDB().collection(getSubscriptionTableName(listId)).updateMany({ cid }, update);
+        await getMongoDB().collection(getSubscriptionTableName(listId)).updateOne({ cid }, { $set: update });
     });
 }
 

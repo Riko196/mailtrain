@@ -18,7 +18,8 @@ const { MessageType } = require('../../../../shared/messages');
 const { CampaignSource, CampaignMessageStatus, CampaignStatus } = require('../../../../shared/campaigns');
 
 /**
- * DataCollector collects all needed data for processing one specific campaign from MySQL centralized database. Used by Synchronizer.
+ * DataCollector collects all needed data for processing (sending) one specific campaign or queued message from MySQL
+ * centralized database. Used by Synchronizer.
  */
 class DataCollector {
     async collectData(query) {
@@ -29,7 +30,7 @@ class DataCollector {
         const type = query.type;
         await knex.transaction(async tx => {
             /* if is campaign message */
-            if (type === MessageType.REGULAR || type === MessageType.TRIGGERED || type === MessageType.TEST) {
+            if (this.isCampaignMessage(type) || this.isQueuedCampaignMessage(type)) {
                 this.data.isMassMail = true;
 
                 await this.collectCampaign(tx, query);
@@ -41,7 +42,7 @@ class DataCollector {
                 this.data.listsByCid = JSON.stringify(this.data.listsByCid);
                 this.data.listsFieldsGrouped = JSON.stringify(this.data.listsFieldsGrouped);
             /* if is queued not campaign message */
-            } else if (type === MessageType.SUBSCRIPTION || type === MessageType.API_TRANSACTIONAL) {
+            } else if (this.isQueuedNotCampaignMessage(type)) {
                 this.data.isMassMail = false;
 
                 await this.collectRSSSendConfiguration(tx, query);
@@ -112,19 +113,19 @@ class DataCollector {
            in order to support tags like LINK_PUBLIC_SUBSCRIBE, LIST_ID_<index>, PUBLIC_LIST_ID_<index> */
         if (query.listId) {
             const list = await lists.getByIdTx(tx, contextHelpers.getAdminContext(), query.listId);
-            addList(list);
+            await addList(list);
         }
 
         if (query.listCid && !listsByCid.has(query.listCid)) {
             const list = await lists.getByCidTx(tx, contextHelpers.getAdminContext(), query.listCid);
-            addList(list);
+            await addList(list);
         }
 
         if (this.data.campaign && this.data.campaign.lists) {
             for (const listSpec of this.data.campaign.lists) {
                 if (!listsById.has(listSpec.list)) {
                     const list = await lists.getByIdTx(tx, contextHelpers.getAdminContext(), listSpec.list);
-                    addList(list);
+                    await addList(list);
                 }
             }
         }
@@ -206,7 +207,7 @@ class DataCollector {
     collectAdditionalQueuedData(query) {
         this.data.type = query.type;
         this.data.status = CampaignMessageStatus.SCHEDULED;
-        if (query.type === MessageType.TRIGGERED) {
+        if (this.isQueuedCampaignMessage(query.type)) {
             this.data.listId = query.listId;
             this.data.subscriptionId = query.subscriptionId;
         } else {
@@ -218,8 +219,21 @@ class DataCollector {
         this.data.encryptionKeys = query.encryptionKeys;
     }
 
+    isCampaignMessage(messageType) {
+        return messageType === MessageType.REGULAR;
+    }
+
     isQueuedMessage(messageType) {
-        return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST || messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
+        return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST ||
+            messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
+    }
+
+    isQueuedCampaignMessage(messageType) {
+        return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST);
+    }
+
+    isQueuedNotCampaignMessage(messageType) {
+        return (messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
     }
 }
 

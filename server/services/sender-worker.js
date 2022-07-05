@@ -136,25 +136,26 @@ const SenderWorkerState = {
             'campaign.status': CampaignStatus.SENDING
         }).toArray();
 
-        //log.verbose('SenderWorker', `Received taskList: ${taskList}`);
+        log.verbose('SenderWorker', `Received taskList: ${taskList}`);
 
         for (const task of taskList) {
             const campaignId = task.campaign.id;
             const chunkCampaignMessages = await this.mongodb.collection('campaign_messages').find({
                 campaign: campaignId,
                 status: CampaignMessageStatus.SCHEDULED,
-                hash_email_uint: { $gte: this.rangeFrom, $lt: this.rangeTo }
+                hashEmailPiece: { $gte: this.rangeFrom, $lt: this.rangeTo }
             }).limit(CHUNK_SIZE).toArray();
 
-            //log.verbose('SenderWorker', `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
-            await this.processCampaignMessages(task, chunkCampaignMessages);
+            log.verbose('SenderWorker', `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
+            if (chunkCampaignMessages.length) {
+                await this.processCampaignMessages(task, chunkCampaignMessages);
+            }
         };
     };
 
     /* From chunk of campaign messages make mails and send them to SMTP server. */
     async processCampaignMessages(campaignData, campaignMessages) {
-        //log.verbose('SenderWorker', 'Start to processing regular campaign ...');
-        const start = new Date();
+        log.verbose('SenderWorker', 'Start to processing chunk of campaign messages ...');
         const campaignId = campaignData.campaign.id;
         const subscribers = await this.getSubscribers(campaignMessages);
         const blacklisted = await this.getBlacklisted(subscribers);
@@ -169,7 +170,8 @@ const SenderWorkerState = {
         for (const campaignMessage of campaignMessages) {
             try {
                 const mail = await campaignMailMaker.makeMail(campaignMessage);
-                await campaignMailSender.sendMail(mail, campaignMessage._id);
+                const campaignMessageType = campaignMessage.type ? campaignMessage.type : MessageType.REGULAR;
+                await campaignMailSender.sendMail(mail, campaignMessageType, campaignMessage._id);
                 await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
                 log.verbose('SenderWorker', `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
             } catch (error) {
@@ -183,8 +185,6 @@ const SenderWorkerState = {
                 }
             }
         }
-        const end = new Date();
-        console.log('TIME: ', (end - start) / 1000);
 
         await this.insertLinksIfNotExist(campaignMailMaker.links);
     }
@@ -198,7 +198,7 @@ const SenderWorkerState = {
         const chunkQueuedCampaignMessages = await this.mongodb.collection('queued').find({
             status: CampaignMessageStatus.SCHEDULED,
             type: { $in: [MessageType.TRIGGERED, MessageType.TEST] },
-            hash_email_uint: { $gte: this.rangeFrom, $lt: this.rangeTo }
+            hashEmailPiece: { $gte: this.rangeFrom, $lt: this.rangeTo }
         }).limit(CHUNK_SIZE).toArray();
 
         if (chunkQueuedCampaignMessages.length !== 0) {
@@ -209,7 +209,7 @@ const SenderWorkerState = {
         const chunkQueuedMessages = await this.mongodb.collection('queued').find({
             status: CampaignMessageStatus.SCHEDULED,
             type: { $in: [MessageType.API_TRANSACTIONAL, MessageType.SUBSCRIPTION] },
-            hash_email_uint: { $gte: this.rangeFrom, $lt: this.rangeTo }
+            hashEmailPiece: { $gte: this.rangeFrom, $lt: this.rangeTo }
         }).limit(CHUNK_SIZE).toArray();
 
         if (chunkQueuedMessages.length !== 0) {

@@ -140,6 +140,10 @@ class Synchronizer {
             if (scheduledQueuedMessages.length > CHUNK_SIZE) {
                 break;
             }
+
+            if (!this.synchronizingQueuedMessages.get(key).length) {
+                this.synchronizingQueuedMessages.delete(key);
+            }
         }
         return scheduledQueuedMessages;
     }
@@ -147,42 +151,46 @@ class Synchronizer {
     async synchronizeScheduledQueuedMessages() {
         const scheduledQueuedMessages = this.selectScheduledQueuedMessages();
 
-        if (scheduledQueuedMessages.length > 0) {
-            log.verbose('Synchronizer', `New task with queued messages: ${scheduledQueuedMessages}`);
-            const preparedQueuedMessages = [];
-
-            /* Collect all needed data for each queued message prepared for sending */
-            for (const queuedMessage of scheduledQueuedMessages) {
-                const messageData = queuedMessage.data;
-                const collectedMessageData = await this.dataCollector.collectData({
-                    type: queuedMessage.type,
-                    campaignId: messageData.campaignId,
-                    listId: messageData.listId,
-                    subscriptionId: messageData.subscriptionId,
-                    to: messageData.to,
-                    sendConfigurationId: queuedMessage.send_configuration,
-                    attachments: messageData.attachments,
-                    html: messageData.html,
-                    text: messageData.text,
-                    subject: messageData.subject,
-                    tagLanguage: messageData.tagLanguage,
-                    renderedHtml: messageData.renderedHtml,
-                    renderedText: messageData.renderedText,
-                    rssEntry: messageData.rssEntry,
-                    mergeTags: messageData.mergeTags,
-                    encryptionKeys: messageData.encryptionKeys
-                });
-
-                preparedQueuedMessages.push(collectedMessageData);
-            }
-
-            await this.sendQueuedMessagesToMongoDB(preparedQueuedMessages);
-            log.verbose('Synchronizer', 'Queued messages successfully sent to MongoDB!');
+        if (scheduledQueuedMessages.length === 0) {
+            return;
         }
-    }
 
-    async sendQueuedMessagesToMongoDB(queuedMessages) {
-        this.mongodb.collection('queued').insertMany(queuedMessages);
+        log.verbose('Synchronizer', `Scheduled new queued messages!`);
+
+        const preparedQueuedMessages = [];
+        /* Collect all needed data for each queued message prepared for sending */
+        for (const queuedMessage of scheduledQueuedMessages) {
+            const messageData = queuedMessage.data;
+            const collectedMessageData = await this.dataCollector.collectData({
+                type: queuedMessage.type,
+                campaignId: messageData.campaignId,
+                listId: messageData.listId,
+                subscriptionId: messageData.subscriptionId,
+                to: messageData.to,
+                hash_email: messageData.hash_email,
+                hashEmailPiece: messageData.hashEmailPiece,
+                sendConfigurationId: queuedMessage.send_configuration,
+                attachments: messageData.attachments,
+                html: messageData.html,
+                text: messageData.text,
+                subject: messageData.subject,
+                tagLanguage: messageData.tagLanguage,
+                renderedHtml: messageData.renderedHtml,
+                renderedText: messageData.renderedText,
+                rssEntry: messageData.rssEntry,
+                mergeTags: messageData.mergeTags,
+                encryptionKeys: messageData.encryptionKeys
+            });
+
+            preparedQueuedMessages.push(collectedMessageData);
+        }
+
+        await this.mongodb.collection('queued').insertMany(queuedMessages);
+        log.verbose('Synchronizer', 'Queued messages successfully sent to MongoDB!');
+
+        /* Remove all sent messages */
+        const deletingIds = scheduledQueuedMessages.map(queuedMessage => queuedMessage.id);
+        await knex('queued').whereIn('id', deletingIds).del();
     }
 
     async synchronizeSendingCampaignsFromMongoDB() {
@@ -223,6 +231,7 @@ class Synchronizer {
         }
     }
 
+    /* Synchronize all sent campaign messages from MongoDB and do the final processing (update campaign_messages table) */
     async synchronizeSentCampaignMessagesFromMongoDB() {
         const campaignMessages = await this.mongodb.collection('campaign_messages').find({
             status: { $in: [CampaignMessageStatus.SENT, CampaignMessageStatus.FAILED] },
@@ -260,6 +269,7 @@ class Synchronizer {
         await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
     }
 
+    /* Synchronize all sent queued messages from MongoDB and do the final processing */
     async synchronizeSentQueuedMessagesFromMongoDB() {
         //log.verbose('Synchronizer', 'Synchronizing sent queued messages from MongoDB...');
         const queuedMessages = await this.mongodb.collection('queued').find({

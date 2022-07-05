@@ -35,6 +35,11 @@ class DataCollector {
                 await this.collectCampaign(tx, query);
                 await this.collectSendConfiguration(tx, query);
                 await this.collectLists(tx, query);
+
+                /* We have to convert Maps to JSON string in order to be able to send it to MongoDB */
+                this.data.listsById = JSON.stringify(this.data.listsById);
+                this.data.listsByCid = JSON.stringify(this.data.listsByCid);
+                this.data.listsFieldsGrouped = JSON.stringify(this.data.listsFieldsGrouped);
             /* if is queued not campaign message */
             } else if (type === MessageType.SUBSCRIPTION || type === MessageType.API_TRANSACTIONAL) {
                 this.data.isMassMail = false;
@@ -55,11 +60,6 @@ class DataCollector {
         } else {
             this.data.campaign.status = CampaignStatus.SENDING;
         }
-
-        /* We have to convert Maps to JSON string in order to be able to send it to MongoDB */
-        this.data.listsById = JSON.stringify(this.data.listsById);
-        this.data.listsByCid = JSON.stringify(this.data.listsByCid);
-        this.data.listsFieldsGrouped = JSON.stringify(this.data.listsFieldsGrouped);
 
         return this.data;
     }
@@ -206,9 +206,14 @@ class DataCollector {
     collectAdditionalQueuedData(query) {
         this.data.type = query.type;
         this.data.status = CampaignMessageStatus.SCHEDULED;
-        this.data.listId = query.listId;
-        this.data.subscriptionId = query.subscriptionId;
-        this.data.to = query.to;
+        if (query.type === MessageType.TRIGGERED) {
+            this.data.listId = query.listId;
+            this.data.subscriptionId = query.subscriptionId;
+        } else {
+            this.data.to = query.to;
+        }
+        this.data.hash_email = query.hash_email;
+        this.data.hashEmailPiece = query.hashEmailPiece;
         this.data.mergeTags = query.mergeTags;
         this.data.encryptionKeys = query.encryptionKeys;
     }

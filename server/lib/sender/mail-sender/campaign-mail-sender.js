@@ -3,6 +3,7 @@
 const { MailSender } = require('./mail-sender');
 const log = require('../../log');
 const { CampaignMessageErrorType, CampaignMessageStatus } = require('../../../../shared/campaigns');
+const { MessageType } = require('../../../../shared/messages');
 
 /**
  * The class which inherits from MailSender and is responsible for sending mails of campaign (Regular, RSS, Triggered, Test) messages.
@@ -13,15 +14,16 @@ class CampaignMailSender extends MailSender {
         /* email -> blacklisted */
         this.blacklisted = blacklisted;
     }
-    
-    async sendMail(mail, campaignMessageID) {
-        //log.verbose('CampaignMailSender', `Starting to sending mail for ${mail.to.address} ...`);
+
+    async sendMail(mail, type, campaignMessageID) {
+        const collectionName = type === MessageType.REGULAR ? 'campaign_messages' : 'queued';
+        log.verbose('CampaignMailSender', `Starting to sending mail for ${mail.to.address} ...`);
         /*
          * We set the campaign_message to SENT before the message is actually sent.
          * This is to avoid multiple delivery if by chance we run out of disk space
          * and couldn't change status in the database after the message has been sent out
          */
-        await this.mongodb.collection('campaign_messages')
+        await this.mongodb.collection(collectionName)
             .updateOne({
                 _id: campaignMessageID
             }, {
@@ -40,7 +42,7 @@ class CampaignMailSender extends MailSender {
             }
         } catch (err) {
             if (err.campaignMessageErrorType === CampaignMessageErrorType.PERMANENT) {
-                await this.mongodb.collection('campaign_messages')
+                await this.mongodb.collection(collectionName)
                     .updateOne({
                         _id: campaignMessageID
                     }, {
@@ -52,7 +54,7 @@ class CampaignMailSender extends MailSender {
                         }
                     });
             } else {
-                await this.mongodb.collection('campaign_messages')
+                await this.mongodb.collection(collectionName)
                     .updateOne({
                         _id: campaignMessageID
                     }, {
@@ -65,7 +67,7 @@ class CampaignMailSender extends MailSender {
             throw err;
         }
 
-        await this.mongodb.collection('campaign_messages')
+        await this.mongodb.collection(collectionName)
             .updateOne({
                 _id: campaignMessageID
             }, {

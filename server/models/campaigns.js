@@ -879,7 +879,7 @@ async function prepareCampaignMessages(campaignId) {
                     status: CampaignMessageStatus.SCHEDULED
                 }).offset(offset).limit(CHUNK_SIZE).map(message => {
                     message._id = message.id;
-                    message.hash_email_uint = hashToUint32(message.hash_email);
+                    message.hashEmailPiece = hashToUint32(message.hash_email);
                     delete message.id;
                     return message;
                 });

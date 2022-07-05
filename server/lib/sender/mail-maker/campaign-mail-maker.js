@@ -6,6 +6,7 @@ const fields = require('../../../models/fields');
 const { getPublicUrl } = require('../../urls');
 const libmime = require('libmime');
 const { toNameTagLangauge, getFieldColumn } = require('../../../../shared/lists');
+const tools = require('../../tools');
 
 /**
  * The class which inherits from MailSender and is responsible for making mails of campaign (Regular, RSS, Triggered, Test) messages.
@@ -15,7 +16,6 @@ class CampaignMailMaker extends MailMaker {
         super(campaignData);
         /* listID:subscription -> subscriber */
         this.subscribers = subscribers;
-        this.links = [];
         this.listsById = JSON.parse(this.listsById);
         this.listsByCid = JSON.parse(this.listsByCid);
         this.listsFieldsGrouped = JSON.parse(this.listsFieldsGrouped);
@@ -47,7 +47,7 @@ class CampaignMailMaker extends MailMaker {
         const list = this.listsById[listId];
         const mailFields = this.listsFieldsGrouped[list.id];
 
-        const mergeTags = campaignMessage.mergeTags;
+        let mergeTags = campaignMessage.mergeTags;
         if (!mergeTags) {
             mergeTags = fields.getMergeTags(mailFields, subscriptionGrouped, this.getExtraTags());
         }

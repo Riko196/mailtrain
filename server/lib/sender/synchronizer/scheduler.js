@@ -63,7 +63,7 @@ class Scheduler {
             const sendConfigurationsIdsInProcessing = [...this.sendConfigurationMessageQueue.keys()];
             const postponedSendConfigurationIds = this.getPostponedSendConfigurationIds();
 
-            // prune old messages
+            /* Prune old messages */
             const expirationThresholds = this.getExpirationThresholds();
             for (const type in expirationThresholds) {
                 const expirationThreshold = expirationThresholds[type];
@@ -79,6 +79,7 @@ class Scheduler {
                 }
             }
 
+            /* Select queued messages which are not processing right now by Synchronizer */
             const rows = await knex('queued')
                 .whereNotIn('send_configuration', [...sendConfigurationsIdsInProcessing, ...postponedSendConfigurationIds])
                 .groupBy('send_configuration')
@@ -87,7 +88,6 @@ class Scheduler {
             for (const row of rows) {
                 const sendConfigurationId = row.send_configuration;
                 this.sendConfigurationMessageQueue.set(sendConfigurationId, []);
-
                 // noinspection JSIgnoredPromiseFromCall
                 this.prepareQueuedBySendConfiguration(sendConfigurationId);
             }
@@ -155,7 +155,6 @@ class Scheduler {
                         await knex('queued').where('id', row.id).del();
                     } else {
                         row.data = JSON.parse(row.data);
-                        log.verbose('Scheduler', `Scheduled new queued messages: ${msgQueue}`);
                         msgQueue.push(row);
                     }
                 }

@@ -21,7 +21,15 @@ class QueuedMailSender extends MailSender {
 
         let result;
         try {
-            result = await super.sendMail(mail);
+            const isBlacklisted = await this.mongodb.collection('blacklist').findOne({
+                email: mail.to
+            });
+
+            if (isBlacklisted) {
+                result = {};
+            } else {
+                result = await super.sendMail(mail);
+            }
         } catch(error) {
             await this.mongodb.collection('queued')
             .updateOne({
@@ -35,6 +43,7 @@ class QueuedMailSender extends MailSender {
             throw error;
         }
 
+        console.log('RESULT: ', result);
         await this.mongodb.collection('queued')
             .updateOne({
                 _id: queuedMessageId

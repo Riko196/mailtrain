@@ -8,7 +8,7 @@ const files = require('./files');
 const fields = require('./fields');
 const subscriptions = require('./subscriptions');
 const contextHelpers = require('../lib/context-helpers');
-const { enforce, hashEmail } = require('../lib/helpers');
+const { enforce, hashEmail, hashToUint32 } = require('../lib/helpers');
 const sender = require('../lib/sender/sender');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker');
@@ -29,7 +29,8 @@ async function queueCampaignMessageTx(tx, sendConfigurationId, listId, subscript
 
     const subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subscriptionId);
     msgData.hash_email = hashEmail(subscriptionGrouped.email);
-    
+    msgData.hashEmailPiece = hashToUint32(msgData.hash_email);
+
     await tx('queued').insert({
         send_configuration: sendConfigurationId,
         type: messageType,
@@ -58,11 +59,15 @@ async function queueSubscriptionMessage(sendConfigurationId, to, subject, encryp
         });
     }
 
+    const hash_email = hashEmail(to);
+    const hashEmailPiece = hashToUint32(hash_email);
+
     const msgData = {
         renderedHtml: html,
         renderedText: text,
         to,
-        hash_email: hashEmail(to),
+        hash_email,
+        hashEmailPiece,
         subject,
         encryptionKeys
     };
@@ -77,11 +82,15 @@ async function queueSubscriptionMessage(sendConfigurationId, to, subject, encryp
 }
 
 async function queueAPITransactionalMessageTx(tx, sendConfigurationId, email, subject, html, text, tagLanguage, mergeTags, attachments) {
+    const hash_email = hashEmail(email);
+    const hashEmailPiece = hashToUint32(hash_email);
+
     const msgData = {
         to: {
             address: email
         },
-        hash_email: hashEmail(email),
+        hash_email,
+        hashEmailPiece,
         html,
         text,
         tagLanguage,

@@ -17,6 +17,7 @@ class MailMaker {
     constructor(taskData) {
         Object.assign(this, taskData);
         this.mongodb = getMongoDB();
+        this.links = [];
     }
 
     /* Make html and text part of the mail. */

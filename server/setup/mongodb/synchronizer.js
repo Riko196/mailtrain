@@ -1,6 +1,6 @@
 const knex = require('../../lib/knex');
 const { connectToMongoDB, getMongoDB } = require('../../lib/mongodb');
-const { getSubscriptionTableName } = require('../../models/subscriptions');
+const subscriptions = require('../../models/subscriptions');
 
 /*
     Async function which synchronizes whole MySQL and MongoDB databases. It removes all collections from MongoDB
@@ -43,7 +43,7 @@ async function synchronizeMongoDbWithMySQL() {
         /* Synchronizing subscriptions */
         const listIDs = await knex('lists').select('id');
         for (const listID of listIDs) {
-            const subscribers = await knex(getSubscriptionTableName(listID.id)).select('*');
+            const subscribers = await knex(subscriptions.getSubscriptionTableName(listID.id)).select('*');
 
             subscribers.map(subscriber => {
                 subscriber._id = subscriber.id;
@@ -51,7 +51,7 @@ async function synchronizeMongoDbWithMySQL() {
             });
 
             if (subscribers.length) {
-                await mongodb.collection(getSubscriptionTableName(listID.id)).insertMany(subscribers);
+                await mongodb.collection(subscriptions.getSubscriptionTableName(listID.id)).insertMany(subscribers);
             }
         }
     } catch(error) {

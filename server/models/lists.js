@@ -12,7 +12,7 @@ const namespaceHelpers = require('../lib/namespace-helpers');
 const fields = require('./fields');
 const segments = require('./segments');
 const imports = require('./imports');
-const { getSubscriptionTableName } = require('./subscriptions');
+const subscriptions = require('./subscriptions');
 const entitySettings = require('../lib/entity-settings');
 const dependencyHelpers = require('../lib/dependency-helpers');
 
@@ -294,8 +294,8 @@ async function remove(context, id) {
         await imports.removeAllByListIdTx(tx, context, id);
 
         await tx('lists').where('id', id).del();
-        await knex.schema.dropTableIfExists(getSubscriptionTableName(id));
-        await getMongoDB().collection(getSubscriptionTableName(id)).drop();
+        await knex.schema.dropTableIfExists(subscriptions.getSubscriptionTableName(id));
+        await getMongoDB().collection(subscriptions.getSubscriptionTableName(id)).drop();
         await activityLog.logEntityActivity('list', EntityActivityType.REMOVE, id);
     });
 }

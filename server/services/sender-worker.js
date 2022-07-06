@@ -12,7 +12,7 @@ const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender')
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
 const { MessageType } = require('../../shared/messages');
-const { getSubscriptionTableName } = require('../models/subscriptions');
+const subscriptions = require('../models/subscriptions');
 
 const CHUNK_SIZE = 100;
 const WORKERS = config.queue.processes;
@@ -72,7 +72,7 @@ const SenderWorkerState = {
         /* listID:subscription -> subscriber */
         const subscribers = new Map();
         for (const [key, value] of listMap) {
-            const listSubscribers = await this.mongodb.collection(getSubscriptionTableName(key)).find({
+            const listSubscribers = await this.mongodb.collection(subscriptions.getSubscriptionTableName(key)).find({
                 _id: { $in: value }
             }).toArray();
 

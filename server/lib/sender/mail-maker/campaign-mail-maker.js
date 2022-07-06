@@ -1,7 +1,7 @@
 'use strict';
 
 const MailMaker = require('./mail-maker');
-const { groupSubscription } = require('../../../models/subscriptions');
+const subscriptions = require('../../../models/subscriptions');
 const fields = require('../../../models/fields');
 const { getPublicUrl } = require('../../urls');
 const libmime = require('libmime');
@@ -40,7 +40,7 @@ class CampaignMailMaker extends MailMaker {
                 groupedFieldsMap[getFieldColumn(field)] = field;
             }
 
-            groupSubscription(groupedFieldsMap, subscriber);
+            subscriptions.groupSubscription(groupedFieldsMap, subscriber);
             subscriptionGrouped = subscriber;
         }
 

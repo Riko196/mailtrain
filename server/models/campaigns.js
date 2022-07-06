@@ -24,7 +24,7 @@ const links = require('./links');
 const feedcheck = require('../lib/feedcheck');
 const contextHelpers = require('../lib/context-helpers');
 const { convertFileURLs } = require('../lib/campaign-content');
-const { getArchivedMessage, queueCampaignMessageTx } = require('./queued');
+const queued = require('./queued');
 const lists = require('./lists');
 
 const { EntityActivityType, CampaignActivityType } = require('../../shared/activity-log');
@@ -1042,7 +1042,7 @@ async function testSend(context, data) {
 
     await knex.transaction(async tx => {
         const processSubscriber = async (sendConfigurationId, listId, subscriptionId, messageData) => {
-            await queueCampaignMessageTx(tx, sendConfigurationId, listId, subscriptionId, MessageType.TEST, messageData);
+            await queued.queueCampaignMessageTx(tx, sendConfigurationId, listId, subscriptionId, MessageType.TEST, messageData);
 
             await activityLog.logEntityActivity('campaign', CampaignActivityType.TEST_SEND, campaignId, {list: listId, subscription: subscriptionId});
         };
@@ -1156,7 +1156,7 @@ async function getRssPreview(context, campaignCid, listCid, subscriptionCid) {
         rssEntry: await feedcheck.getEntryForPreview(campaign.data.feedUrl)
     };
 
-    return await getArchivedMessage(campaignCid, listCid, subscriptionCid, settings, true);
+    return await queued.getArchivedMessage(campaignCid, listCid, subscriptionCid, settings, true);
 }
 
 

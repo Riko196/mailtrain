@@ -229,23 +229,25 @@ class Synchronizer {
         for (const link of unsynchronizedLinks) {
             await this.mongodb.collection('links').updateOne({ _id: link._id }, { $set: { status: links.LinkStatus.SYNCHRONIZED } });
             delete link._id, link.status;
-            await links.insertIfNotExists(link);
+            await links.insertLinkIfNotExists(link);
         }
     }
 
-    /* Synchronize all data when subscribers clicked on some links */
+    /* Synchronize all data when subscribers opened mail or clicked on some links */
     async synchronizeClickedLinksFromMongoDB() {
-        const clicked_link = await this.mongodb.collection('clicked_links').findOneAndDelete({});
+        const clickedLinks = await this.mongodb.collection('campaign_links').find({}).limit(CHUNK_SIZE).toArray();
 
-        if (clicked_link._id === undefined) {
+        if (clickedLinks.length === 0) {
             return;
         }
 
-        const link = await links.resolve(clicked_link._id);
-        for (let i = 0; i < link.clicked; i++) {
-            const linkId = clicked_link._id != links.LinkId.OPEN ? link.id : links.LinkId.OPEN;
-            await links.countLink(link.ip, link.header, link.campaign, link.list, link.subscription, linkId);
+        for (const clickedLink of clickedLinks) {
+            await links.countLink(clickedLink.ip, clickedLink.header, clickedLink.campaign, clickedLink.list,
+                clickedLink.subscription, clickedLink.linkId);
         }
+
+        const deletingIds = clickedLinks.map(clickedLink => clickedLink._id);
+        await this.mongodb.collection('campaign_links').deleteMany({ _id: { $in: deletingIds } });
     }
 
     /* Synchronize all sent campaign messages from MongoDB and do the final processing (update campaign_messages table) */

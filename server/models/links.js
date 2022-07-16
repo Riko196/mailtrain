@@ -9,7 +9,7 @@ const contextHelpers = require('../lib/context-helpers');
 const geoip = require('geoip-ultralight');
 const uaParser = require('device');
 const he = require('he');
-const { getPublicUrl } = require('../lib/urls');
+const { getHaProxyUrl } = require('../lib/urls');
 const tools = require('../lib/tools');
 const shortid = require('../lib/shortid');
 const {enforce} = require('../lib/helpers');
@@ -24,10 +24,30 @@ const LinkStatus = {
     SYNCHRONIZED: 1
 };
 
+/* Called only from HAPUBLIC server for getting link from linkCid. */
 async function resolve(linkCid) {
-    return await knex('links').where('cid', linkCid).select(['id', 'url']).first();
+    return await getMongoDB().collection('links').findOne({ cid: linkCid });
 }
 
+/* Called only from HAPUBLIC server when some subcriber click on some link or open mail. */
+async function insertClickedLink(ip, header, campaign, list, subscription, linkId) {
+    /* In one DB query, insert a new opened or clicked campaign_link */
+    try {
+        await getMongoDB().collection('campaign_links').insertOne({
+            _id: `${campaign}:${list}:${subscription}:${linkId}`, ip, header, campaign, list, subscription, linkId
+        });
+    } catch (error) {
+        /* We can ignore problem with duplicates */
+        if (error.code !== 11000) {
+            throw error;
+        }
+    }
+}
+
+/*
+ * Called only from Synchronizer with database query for synchronizing data to MySQL when some subscriber opened the mail
+ * or clicked on some link.
+ */
 async function countLink(remoteIp, userAgent, campaignCid, listCid, subscriptionCid, linkId) {
     await knex.transaction(async tx => {
         const list = await lists.getByCidTx(tx, contextHelpers.getAdminContext(), listCid);
@@ -109,18 +129,8 @@ async function countLink(remoteIp, userAgent, campaignCid, listCid, subscription
     });
 }
 
-/* Called only from HAPUBLIC server with database query when some subcriber click on some link or open mail. */
-async function insertOrIncrement(ip, header, campaign, list, subscription, linkId) {
-    const filter = { _id: linkId };
-    const updateDoc = { $inc: { clicked: 1 }, $set: { _id: linkId, ip, header, campaign, list, subscription, clicked: 0 } };
-    const options = { upsert: true };
-
-    /* In one DB query, insert a new document or increment clicked field */
-    await getMongoDB().collection('clicked_links').updateOne(filter, updateDoc, options);
-}
-
-/* Called only from Synchronizer with database query. */
-async function insertIfNotExists(link) {
+/* Called only from Synchronizer with database query for inserting existing link from some campaign mail. */
+async function insertLinkIfNotExists(link) {
     const foundLink = await knex('links').select(['id', 'cid']).where({
         campaign: link.campaign,
         url: link.url
@@ -142,8 +152,8 @@ async function insertIfNotExists(link) {
     }
 }
 
-/* Called only from SenderWorker without database query. */
-function addOrGet(campaignId, url, links) {
+/* Called only from SenderWorker without database query for adding link to the list or getting link back. */
+function addOrGetLink(campaignId, url, links) {
     const link = links.find(link => link.campaign === campaignId && link.url === url);
 
     if (!link) {
@@ -165,7 +175,7 @@ function addOrGet(campaignId, url, links) {
     }
 }
 
-/* Called only from SenderWorker without database query. */
+/* Called only from SenderWorker without database query for update links during making mails. */
 function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById, list, subscription, links) {
     if ((campaign.open_tracking_disabled && campaign.click_tracking_disabled) || !source || !source.trim()) {
         // tracking is disabled, do not modify the message
@@ -175,7 +185,7 @@ function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById
     // insert tracking image
     if (!campaign.open_tracking_disabled) {
         let inserted = false;
-        const imgUrl = getPublicUrl(`/links/${campaign.cid}/${list.cid}/${subscription.cid}`);
+        const imgUrl = getHaProxyUrl(`/links/${campaign.cid}/${list.cid}/${subscription.cid}`);
         const img = '<img src="' + imgUrl + '" width="1" height="1" alt="mt">';
         source = source.replace(/<\/body\b/i, match => {
             inserted = true;
@@ -200,14 +210,14 @@ function updateLinks(source, tagLanguage, mergeTags, campaign, campaignListsById
         for (const url of urlsToBeReplaced) {
             // url might include variables, need to rewrite those just as we do with message content
             const expanedUrl = encodeURI(tools.formatCampaignTemplate(url, tagLanguage, mergeTags, false, campaign, campaignListsById, list, subscription));
-            const link = addOrGet(campaign.id, expanedUrl, links);
+            const link = addOrGetLink(campaign.id, expanedUrl, links);
             urls.set(url, link);
         }
 
         source = source.replace(re, (match, prefix, encodedUrl) => {
             const url = he.decode(encodedUrl, {isAttributeValue: true});
             const link = urls.get(url);
-            return prefix + (link ? getPublicUrl(`/links/${campaign.cid}/${list.cid}/${subscription.cid}/${link.cid}`) : url);
+            return prefix + (link ? getHaProxyUrl(`/links/${campaign.cid}/${list.cid}/${subscription.cid}/${link.cid}`) : url);
         });
     }
 
@@ -218,7 +228,6 @@ module.exports.LinkId = LinkId;
 module.exports.LinkStatus = LinkStatus;
 module.exports.resolve = resolve;
 module.exports.countLink = countLink;
-module.exports.insertOrIncrement = insertOrIncrement
-module.exports.insertIfNotExists = insertIfNotExists;
-module.exports.addOrGet = addOrGet;
+module.exports.insertClickedLink = insertClickedLink;
+module.exports.insertLinkIfNotExists = insertLinkIfNotExists;
 module.exports.updateLinks = updateLinks;

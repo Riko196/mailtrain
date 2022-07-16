@@ -105,8 +105,10 @@ www:
   sandboxUrlBase: http://localhost:3003
   # URL base for public urls (campaign recipients). It must be absolute (starting with http:// or https://) and contain the sandbox port.
   publicUrlBase: http://localhost:3004
-  # URL base for high-available public urls for linked files (campaign recipients). It must be absolute (starting with http:// or https://) and contain the sandbox port.
+  # URL base for high-available servers (public urls for linked files requested by campaign recipients). It must be absolute (starting with http:// or https://) and contain the sandbox port.
   haPublicUrlBase: http://localhost
+  # URL base for high-available proxy (public urls for linked files requested by campaign recipients). It must be absolute (starting with http:// or https://) and contain the sandbox port.
+  haProxyUrlBase: http://localhost:8001
 
   # Secret for signing the session ID cookie
   secret: a cat

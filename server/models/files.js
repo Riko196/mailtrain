@@ -9,7 +9,7 @@ const fs = require('fs-extra-promise');
 const path = require('path');
 const interoperableErrors = require('../../shared/interoperable-errors');
 const entitySettings = require('../lib/entity-settings');
-const {getPublicUrl} = require('../lib/urls');
+const { getHaProxyUrl } = require('../lib/urls');
 
 const crypto = require('crypto');
 const bluebird = require('bluebird');
@@ -30,7 +30,7 @@ function getFilePath(type, subType, entityId, filename) {
 }
 
 function getFileUrl(context, type, subType, entityId, filename) {
-    return getPublicUrl(`files/${type}/${subType}/${entityId}/${filename}`)
+    return getHaProxyUrl(`files/${type}/${subType}/${entityId}/${filename}`)
 }
 
 function getFilesTable(type, subType) {
@@ -82,11 +82,11 @@ async function getFileById(context, type, subType, id) {
     };
 }
 
-async function getFileByOriginalName(context, type, subType, entityId, name) {
+async function _getFileBy(context, type, subType, entityId, key, value) {
     enforceTypePermitted(type, subType);
     const file = await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, type, entityId, getFilesPermission(type, subType, 'view'));
-        const file = await tx(getFilesTable(type, subType)).where({entity: entityId, delete_pending: false, originalname: name}).first();
+        const file = await tx(getFilesTable(type, subType)).where({entity: entityId, delete_pending: false, [key]: value}).first();
         return file;
     });
 
@@ -101,11 +101,20 @@ async function getFileByOriginalName(context, type, subType, entityId, name) {
     };
 }
 
+async function getFileByOriginalName(context, type, subType, entityId, name) {
+    return await _getFileBy(context, type, subType, entityId, 'originalname', name)
+}
+
+async function getFileByFilename(context, type, subType, entityId, name) {
+    return await _getFileBy(context, type, subType, entityId, 'filename', name)
+}
+
 /* Called only from HAPUBLIC server when some subcriber opened mail and linked file has to be sent him. */
-async function getFileByFilename(type, subType, entityId, name) {
+async function getFileByFilenameViaMongoDB(type, subType, entityId, name) {
     enforceTypePermitted(type, subType);
 
-    const file = await getMongoDB().collection(getFilesTable(type, subType)).findOne({ entity: entityId, delete_pending: false, filename: name });
+    const file = await getMongoDB().collection(getFilesTable(type, subType))
+        .findOne({ entity: entityId, delete_pending: false, filename: name });
 
     if (!file) {
         throw new interoperableErrors.NotFoundError();
@@ -119,7 +128,7 @@ async function getFileByFilename(type, subType, entityId, name) {
 }
 
 async function getFileByUrl(context, url) {
-    const urlPrefix = getPublicUrl('files/');
+    const urlPrefix = getHaProxyUrl('files/');
     if (url.startsWith(urlPrefix)) {
         const path = url.substring(urlPrefix.length);
         const pathElem = path.split('/');
@@ -399,6 +408,7 @@ module.exports.listTx = listTx;
 module.exports.list = list;
 module.exports.getFileById = getFileById;
 module.exports.getFileByFilename = getFileByFilename;
+module.exports.getFileByFilenameViaMongoDB = getFileByFilenameViaMongoDB;
 module.exports.getFileByUrl = getFileByUrl;
 module.exports.getFileByOriginalName = getFileByOriginalName;
 module.exports.createFiles = createFiles;

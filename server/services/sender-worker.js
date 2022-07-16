@@ -201,9 +201,16 @@ const SenderWorkerState = {
             hashEmailPiece: { $gte: this.rangeFrom, $lt: this.rangeTo }
         }).limit(CHUNK_SIZE).toArray();
 
-        if (chunkQueuedCampaignMessages.length !== 0) {
-            await this.processCampaignMessages(chunkQueuedMessages);
+        for (const queuedCampaignMessage of chunkQueuedCampaignMessages) {
+            const campaignData = {
+                campaign: queuedCampaignMessage.campaign,
+                sendConfiguration: queuedCampaignMessage.sendConfiguration,
+                configItems: queuedCampaignMessage.configItems,
+                isMassEmail: queuedCampaignMessage.isMassEmail
+            };
+            await this.processCampaignMessages(campaignData, chunkQueuedCampaignMessages);
         }
+
 
         /* Processing queued not campaign messages (API_TRANSACTIONAL, SUBSCRIPTION) */
         const chunkQueuedMessages = await this.mongodb.collection('queued').find({

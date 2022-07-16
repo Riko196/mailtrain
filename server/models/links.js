@@ -1,6 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
+const { getMongoDB } = require('../lib/mongodb');
 const campaigns = require('./campaigns');
 const lists = require('./lists');
 const subscriptions = require('./subscriptions');
@@ -108,6 +109,16 @@ async function countLink(remoteIp, userAgent, campaignCid, listCid, subscription
     });
 }
 
+/* Called only from HAPUBLIC server with database query when some subcriber click on some link or open mail. */
+async function insertOrIncrement(ip, header, campaign, list, subscription, linkId) {
+    const filter = { _id: linkId };
+    const updateDoc = { $inc: { clicked: 1 }, $set: { _id: linkId, ip, header, campaign, list, subscription, clicked: 0 } };
+    const options = { upsert: true };
+
+    /* In one DB query, insert a new document or increment clicked field */
+    await getMongoDB().collection('clicked_links').updateOne(filter, updateDoc, options);
+}
+
 /* Called only from Synchronizer with database query. */
 async function insertIfNotExists(link) {
     const foundLink = await knex('links').select(['id', 'cid']).where({
@@ -207,6 +218,7 @@ module.exports.LinkId = LinkId;
 module.exports.LinkStatus = LinkStatus;
 module.exports.resolve = resolve;
 module.exports.countLink = countLink;
+module.exports.insertOrIncrement = insertOrIncrement
 module.exports.insertIfNotExists = insertIfNotExists;
 module.exports.addOrGet = addOrGet;
 module.exports.updateLinks = updateLinks;

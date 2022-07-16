@@ -26,6 +26,7 @@ Note that some of these may be already obsolete...
 - Aggregated RSS campaigns
 
 ### Sender
-- Postpone FAILED messages
-- Make Sender high-available
-- Add hash_email field to queued
+- Postpone and resend FAILED messages
+- Check transaction consistency among MongoDB and also Synchronizer knex queries
+- Add synchronizing into Sender
+- Use campaign functions in Synchronizer for synchronizing campaign data

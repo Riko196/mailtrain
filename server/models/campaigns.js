@@ -668,7 +668,8 @@ async function _removeTx(tx, context, id, existing = null, overrideTypeCheck = f
     await tx('campaign_links').where('campaign', id).del();
 
     await tx('links').where('campaign', id).del();
-
+    /* Synchronizing with MongoDB */
+    await getMongoDB().collection('links').deleteMany({ campaign: id });
     await triggers.removeAllByCampaignIdTx(tx, context, id);
 
     await tx('template_dep_campaigns')
@@ -996,6 +997,7 @@ async function reset(context, campaignId) {
         await getMongoDB().collection('tasks').deleteMany({ 'campaign.id': campaignId });
         await tx('campaign_links').where('campaign', campaignId).del();
         await tx('links').where('campaign', campaignId).del();
+        await getMongoDB().collection('links').deleteMany({ campaign: campaignId });
     });
 }
 

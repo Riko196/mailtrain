@@ -33,6 +33,7 @@ const { filesDir } = require('./models/files');
 const trustedPort = config.www.trustedPort;
 const sandboxPort = config.www.sandboxPort;
 const publicPort = config.www.publicPort;
+const haPublicPorts = config.www.haPublicPorts;
 const host = config.www.host;
 
 if (config.title) {
@@ -40,7 +41,7 @@ if (config.title) {
 }
 
 async function startHTTPServer(appType, appName, port) {
-    const app = await appBuilder.createApp(appType);
+    const app = await appBuilder.createApp(appType, port);
     app.set('port', port);
 
     const server = http.createServer(app);
@@ -107,6 +108,11 @@ async function init() {
     await startHTTPServer(AppType.TRUSTED, 'trusted', trustedPort);
     await startHTTPServer(AppType.SANDBOXED, 'sandbox', sandboxPort);
     await startHTTPServer(AppType.PUBLIC, 'public', publicPort);
+
+    /* Start n HAPUBLIC servers which are controlled by HAProxy process */
+    for (const haPublicPort of haPublicPorts) {
+        await startHTTPServer(AppType.HAPUBLIC, 'haPublic', haPublicPort);
+    }
 
     privilegeHelpers.dropRootPrivileges();
 

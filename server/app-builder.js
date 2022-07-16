@@ -62,7 +62,7 @@ const index = require('./routes/index');
 
 const interoperableErrors = require('../shared/interoperable-errors');
 
-const { getTrustedUrl, getSandboxUrl, getPublicUrl } = require('./lib/urls');
+const { getTrustedUrl, getSandboxUrl, getPublicUrl, getHaPublicUrl } = require('./lib/urls');
 const { AppType } = require('../shared/app');
 
 
@@ -121,7 +121,7 @@ hbs.registerHelper('flash_messages', function () { // eslint-disable-line prefer
 
 
 
-async function createApp(appType) {
+async function createApp(appType, port) {
     const app = express();
 
     function install404Fallback(url) {
@@ -271,8 +271,11 @@ async function createApp(appType) {
 
     if (appType === AppType.PUBLIC) {
         useWith404Fallback('/subscription', subscription);
-        useWith404Fallback('/links', links);
         useWith404Fallback('/archive', archive);
+    }
+
+    if (appType === AppType.HAPUBLIC) {
+        useWith404Fallback('/links', links);
         useWith404Fallback('/files', files);
     }
 
@@ -377,6 +380,8 @@ async function createApp(appType) {
                     publicPath = getSandboxUrl();
                 } else if (appType === AppType.PUBLIC) {
                     publicPath = getPublicUrl();
+                } else if (appType === AppType.HAPUBLIC) {
+                    publicPath = getHaPublicUrl(port);
                 }
 
                 log.verbose('HTTP', err);

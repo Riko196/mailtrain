@@ -43,6 +43,9 @@ function getPublicUrl(path, opts) {
     return _getUrl(config.www.publicUrlBase, path || '', opts);
 }
 
+function getHaPublicUrl(port, path, opts) {
+    return _getUrl(`${config.www.haPublicUrlBase}:${port}`, path || '', opts);
+}
 
 function getTrustedUrlBaseDir() {
     const mailtrainUrl = urllib.parse(config.www.trustedUrlBase);
@@ -63,6 +66,7 @@ module.exports = {
     getTrustedUrl,
     getSandboxUrl,
     getPublicUrl,
+    getHaPublicUrl,
     getTrustedUrlBase,
     getSandboxUrlBase,
     getPublicUrlBase,

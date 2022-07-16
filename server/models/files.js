@@ -1,6 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
+const { getMongoDB } = require('../lib/mongodb');
 const { enforce } = require('../lib/helpers');
 const dtHelpers = require('../lib/dt-helpers');
 const shares = require('./shares');
@@ -81,11 +82,11 @@ async function getFileById(context, type, subType, id) {
     };
 }
 
-async function _getFileBy(context, type, subType, entityId, key, value) {
+async function getFileByOriginalName(context, type, subType, entityId, name) {
     enforceTypePermitted(type, subType);
     const file = await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, type, entityId, getFilesPermission(type, subType, 'view'));
-        const file = await tx(getFilesTable(type, subType)).where({entity: entityId, delete_pending: false, [key]: value}).first();
+        const file = await tx(getFilesTable(type, subType)).where({entity: entityId, delete_pending: false, originalname: name}).first();
         return file;
     });
 
@@ -100,12 +101,21 @@ async function _getFileBy(context, type, subType, entityId, key, value) {
     };
 }
 
-async function getFileByOriginalName(context, type, subType, entityId, name) {
-    return await _getFileBy(context, type, subType, entityId, 'originalname', name)
-}
+/* Called only from HAPUBLIC server when some subcriber opened mail and linked file has to be sent him. */
+async function getFileByFilename(type, subType, entityId, name) {
+    enforceTypePermitted(type, subType);
 
-async function getFileByFilename(context, type, subType, entityId, name) {
-    return await _getFileBy(context, type, subType, entityId, 'filename', name)
+    const file = await getMongoDB().collection(getFilesTable(type, subType)).findOne({ entity: entityId, delete_pending: false, filename: name });
+
+    if (!file) {
+        throw new interoperableErrors.NotFoundError();
+    }
+
+    return {
+        mimetype: file.mimetype,
+        name: file.originalname,
+        path: getFilePath(type, subType, file.entity, file.filename)
+    };
 }
 
 async function getFileByUrl(context, url) {
@@ -228,10 +238,19 @@ async function createFiles(context, type, subType, entityId, files, replacementB
             }
 
             await tx(getFilesTable(type, subType)).where('entity', entityId).whereIn('id', idsToRemove).del();
+            /* Synchronizing with MongoDB */
+            await getMongoDB(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId });
         }
 
         if (fileEntities) {
-            await tx(getFilesTable(type, subType)).insert(fileEntities);
+            const ids = await tx(getFilesTable(type, subType)).insert(fileEntities);
+            /* Synchronizing with MongoDB */
+            if (getFilesTable(toType, toSubType) === 'files_campaign_file') {
+                for (let i = 0; i < ids.length; i++) {
+                    fileEntities[i]._id = ids[i];
+                }
+                await getMongoDB(getFilesTable(type, subType)).insertMany(fileEntities);
+            }
         }
     });
 
@@ -279,6 +298,7 @@ async function lockTx(tx, type, subType, id) {
     enforceTypePermitted(type, subType);
     const filesTableName = getFilesTable(type, subType);
     await tx(filesTableName).where('id', id).increment('lock_count');
+    /* No need to synchronize with MongoDB */
 }
 
 async function unlockTx(tx, type, subType, id) {
@@ -292,12 +312,15 @@ async function unlockTx(tx, type, subType, id) {
 
     if (file.lock_count === 1 && file.delete_pending) {
         await tx(filesTableName).where('id', id).del();
+        /* Synchronizing with MongoDB */
+        await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
 
         const filePath = getFilePath(type, subType, file.entity, file.filename);
         await fs.removeAsync(filePath);
 
     } else {
         await tx(filesTableName).where('id', id).update({lock_count: file.lock_count - 1});
+        /* No need to synchronize with MongoDB */
     }
 }
 
@@ -311,11 +334,14 @@ async function removeFile(context, type, subType, id) {
 
         if (!file.lock_count) {
             await tx(filesTableName).where('id', file.id).del();
+            /* Synchronizing with MongoDB */
+            await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
 
             const filePath = getFilePath(type, subType, file.entity, file.filename);
             await fs.removeAsync(filePath);
         } else {
             await tx(filesTableName).where('id', file.id).update({delete_pending: true});
+            /* No need to synchronize with MongoDB */
         }
     });
 }
@@ -338,7 +364,14 @@ async function copyAllTx(tx, context, fromType, fromSubType, fromEntityId, toTyp
     }
 
     if (rows.length > 0) {
-        await tx(getFilesTable(toType, toSubType)).insert(rows);
+        const ids = await tx(getFilesTable(toType, toSubType)).insert(rows);
+        /* Synchronizing with MongoDB */
+        if (getFilesTable(toType, toSubType) === 'files_campaign_file') {
+            for (let i = 0; i < ids.length; i++) {
+                rows[i]._id = ids[i];
+            }
+            await getMongoDB().collection(getFilesTable(toType, toSubType)).insertMany(rows);
+        }
     }
 }
 
@@ -353,6 +386,10 @@ async function removeAllTx(tx, context, type, subType, entityId) {
     }
 
     await tx(getFilesTable(type, subType)).where('entity', entityId).del();
+    /* Synchronizing with MongoDB */
+    if (getFilesTable(toType, toSubType) === 'files_campaign_file') {
+        await getMongoDB().collection(getFilesTable(toType, toSubType)).deleteMany({ entity: entityId });
+    }
 }
 
 

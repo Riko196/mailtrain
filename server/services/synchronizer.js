@@ -8,7 +8,7 @@ const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaign
 const activityLog = require('../lib/activity-log');
 const { CampaignActivityType } = require('../../shared/activity-log');
 const log = require('../lib/log');
-const { LinkStatus, insertIfNotExists } = require('../models/links');
+const links = require('../models/links');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const Scheduler = require('../lib/sender/synchronizer/scheduler');
 
@@ -185,7 +185,7 @@ class Synchronizer {
             preparedQueuedMessages.push(collectedMessageData);
         }
 
-        await this.mongodb.collection('queued').insertMany(queuedMessages);
+        await this.mongodb.collection('queued').insertMany(preparedQueuedMessages);
         log.verbose('Synchronizer', 'Queued messages successfully sent to MongoDB!');
 
         /* Remove all sent messages */
@@ -195,6 +195,7 @@ class Synchronizer {
 
     async synchronizeSendingCampaignsFromMongoDB() {
         await this.synchronizeLinksFromMongoDB();
+        await this.synchronizeClickedLinksFromMongoDB();
         await this.synchronizeSentCampaignMessagesFromMongoDB();
 
         /* Find FINISHED campaigns and remove them from tasks */
@@ -213,21 +214,37 @@ class Synchronizer {
         }
     }
 
+    /* Synchronize all initialized links */
     async synchronizeLinksFromMongoDB() {
-        const links = await this.mongodb.collection('links').find({
-            status: LinkStatus.UNSYNCHRONIZED
+        const unsynchronizedLinks = await this.mongodb.collection('links').find({
+            status: links.LinkStatus.UNSYNCHRONIZED
         }).limit(CHUNK_SIZE).toArray();
 
-        if (links.length === 0) {
+        if (unsynchronizedLinks.length === 0) {
             return;
         }
 
-        log.verbose('Synchronizer', `Received ${links.length} links from MongoDB!`);
+        log.verbose('Synchronizer', `Received ${unsynchronizedLinks.length} links from MongoDB!`);
 
-        for (const link of links) {
-            await this.mongodb.collection('links').updateOne({ _id: link._id }, { $set: { status: LinkStatus.SYNCHRONIZED } });
+        for (const link of unsynchronizedLinks) {
+            await this.mongodb.collection('links').updateOne({ _id: link._id }, { $set: { status: links.LinkStatus.SYNCHRONIZED } });
             delete link._id, link.status;
-            await insertIfNotExists(link);
+            await links.insertIfNotExists(link);
+        }
+    }
+
+    /* Synchronize all data when subscribers clicked on some links */
+    async synchronizeClickedLinksFromMongoDB() {
+        const clicked_link = await this.mongodb.collection('clicked_links').findOneAndDelete({});
+
+        if (clicked_link._id === undefined) {
+            return;
+        }
+
+        const link = await links.resolve(clicked_link._id);
+        for (let i = 0; i < link.clicked; i++) {
+            const linkId = clicked_link._id != links.LinkId.OPEN ? link.id : links.LinkId.OPEN;
+            await links.countLink(link.ip, link.header, link.campaign, link.list, link.subscription, linkId);
         }
     }
 

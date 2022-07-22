@@ -2,7 +2,8 @@
 
 const faker = require("faker");
 const shortid = require("../../lib/shortid");
-const { hashEmail } = require("../../lib/helpers");
+const { hashEmail, hashToUint32 } = require("../../lib/helpers");
+const { MessageType } = require("../../../shared/messages");
 
 function getAdminUser() {
   return {
@@ -120,6 +121,91 @@ function getFakeSubscribers() {
   }
 }
 
+function getRandomInt(max) {
+  return Math.floor(Math.random() * max);
+}
+
+async function getFakeTriggeredMessage() {
+  await queueCampaignMessageTx(tx,
+    campaign.send_configuration, cpgList.list, subscriber.id, MessageType.TRIGGERED,
+    {
+        campaignId: campaign.id,
+        triggerId: trigger.id
+    }
+
+    const triggerId = 1
+    const campaignId =
+    const listId = listId;
+    const subscriptionId = subscriptionId;
+
+    const subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subscriptionId);
+    const hash_email = hashEmail(subscriptionGrouped.email);
+    const hashEmailPiece = hashToUint32(msgData.hash_email);
+
+    return {
+        triggerId,
+        campaignId,
+        listId,
+        subscriptionId,
+        hash_email,
+        hashEmailPiece
+    };
+);
+}
+
+async function getFakeTestMessage() {
+  const messageData = {
+    campaignId: campaignId,
+    subject: 'SUBJECT',
+    html: '<!DOCTYPE html> <html> </html>',
+    text: 'TEXT',
+    tagLanguage: '<!DOCTYPE html> <html> </html>',
+    attachments: []
+  };
+}
+
+function getFakeSubscriptionMessage() {
+  const html = '<!DOCTYPE html> <html> </html>';
+  const firstName = faker.name.firstName();
+  const lastName = faker.name.lastName();
+  const to = faker.internet.email(firstName, lastName);
+  const hash_email = hashEmail(to);
+  const hashEmailPiece = hashToUint32(hash_email);
+
+  return {
+    renderedHtml: html,
+    renderedText: "  ",
+    to,
+    hash_email,
+    hashEmailPiece,
+    subject: 'SUBJECT',
+    encryptionKeys: []
+  };
+}
+
+function getFakeAPITransactionalMessage() {
+  const html = '<!DOCTYPE html> <html> </html>';
+  const firstName = faker.name.firstName();
+  const lastName = faker.name.lastName();
+  const email = faker.internet.email(firstName, lastName);
+  const hash_email = hashEmail(email);
+  const hashEmailPiece = hashToUint32(hash_email);
+
+  return {
+      to: {
+          address: email
+      },
+      hash_email,
+      hashEmailPiece,
+      html,
+      text: 'TEXT',
+      tagLanguage: html,
+      subject: 'SUBJECT',
+      mergeTags: { key: 'TAG' },
+      attachments: []
+  };
+}
+
 module.exports.getAdminUser = getAdminUser;
 module.exports.getFakeUser = getFakeUser;
 module.exports.getFakeUniqueSubscriber = getFakeUniqueSubscriber;
@@ -127,3 +213,8 @@ module.exports.getFakeSubscriber = getFakeSubscriber;
 module.exports.getRandomList = getRandomList;
 module.exports.getRandomCampaign = getRandomCampaign;
 module.exports.getFakeSubscribers = getFakeSubscribers;
+module.exports.getRandomInt = getRandomInt;
+module.exports.getFakeTriggeredMessage = getFakeTriggeredMessage;
+module.exports.getFakeTestMessage = getFakeTestMessage;
+module.exports.getFakeSubscriptionMessage = getFakeSubscriptionMessage;
+module.exports.getFakeAPITransactionalMessage = getFakeAPITransactionalMessage;

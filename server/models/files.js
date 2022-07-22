@@ -248,17 +248,17 @@ async function createFiles(context, type, subType, entityId, files, replacementB
 
             await tx(getFilesTable(type, subType)).where('entity', entityId).whereIn('id', idsToRemove).del();
             /* Synchronizing with MongoDB */
-            await getMongoDB(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId });
+            await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId });
         }
 
         if (fileEntities) {
             const ids = await tx(getFilesTable(type, subType)).insert(fileEntities);
             /* Synchronizing with MongoDB */
-            if (getFilesTable(toType, toSubType) === 'files_campaign_file') {
+            if (getFilesTable(type, subType) === 'files_campaign_file') {
                 for (let i = 0; i < ids.length; i++) {
                     fileEntities[i]._id = ids[i];
                 }
-                await getMongoDB(getFilesTable(type, subType)).insertMany(fileEntities);
+                await getMongoDB().collection(getFilesTable(type, subType)).insertMany(fileEntities);
             }
         }
     });
@@ -396,8 +396,8 @@ async function removeAllTx(tx, context, type, subType, entityId) {
 
     await tx(getFilesTable(type, subType)).where('entity', entityId).del();
     /* Synchronizing with MongoDB */
-    if (getFilesTable(toType, toSubType) === 'files_campaign_file') {
-        await getMongoDB().collection(getFilesTable(toType, toSubType)).deleteMany({ entity: entityId });
+    if (getFilesTable(type, subType) === 'files_campaign_file') {
+        await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ entity: entityId });
     }
 }
 

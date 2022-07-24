@@ -25,6 +25,8 @@ class Scheduler {
         this.notifier = notifier;
         /* sendConfigurationId -> {retryCount, postponeTill} */
         this.sendConfigurationStatuses = new Map();
+        /* Values in seconds which point to the next postpone time when messages fail */
+        this.retryBackoff = [10, 20, 30, 30, 60, 60, 120, 120, 300];
         /* campaignId -> sendConfigurationId */
         this.sendConfigurationIdByCampaignId = new Map();
         /* Mutexes */
@@ -34,6 +36,10 @@ class Scheduler {
         this.periodicCheck();
     }
 
+    /**
+     * Method which repeats endlessly with CHECK_PERIOD long pauses and always checks whether there are scheduled campaigns
+     * or queued messages and schedules them if yes.
+     */
     periodicCheck() {
         /* noinspection JSIgnoredPromiseFromCall */
         log.info('Scheduler', 'Periodic check...');
@@ -41,6 +47,7 @@ class Scheduler {
         setTimeout(this.periodicCheck.bind(this), CHECK_PERIOD);
     }
 
+    /* One checking round of the Scheduler. */
     scheduleCheck() {
         /* This task means synchronizing new data from MongoDB */
         this.notifier.notify('taskAvailable');
@@ -52,6 +59,7 @@ class Scheduler {
         this.scheduleQueued();
     }
 
+    /* Schedule queued messages which meet the conditions. */
     async scheduleQueued() {
         if (this.queuedSchedulerRunning) {
             return;
@@ -99,6 +107,7 @@ class Scheduler {
         this.queuedSchedulerRunning = false;
     }
 
+    /* Prepare potentially scheduled queued messages for Synchronizer. */
     async prepareQueuedBySendConfiguration(sendConfigurationId) {
         const msgQueue = this.sendConfigurationMessageQueue.get(sendConfigurationId);
 
@@ -175,6 +184,7 @@ class Scheduler {
         }
     }
 
+    /* Schedule campaigns which meet the conditions. */
     async scheduleCampaigns() {
         if (this.campaignSchedulerRunning) {
             return;
@@ -251,6 +261,7 @@ class Scheduler {
         this.campaignSchedulerRunning = false;
     }
 
+    /* Prepare potentially scheduled campaigns for Synchronizer. */
     async prepareCampaign(campaignId) {
         let preparedCampaignMessages = [];
 
@@ -318,12 +329,14 @@ class Scheduler {
         }
     }
 
+    /* Get information whether sendConfiguration should be scheduled now or postponed to the future. */
     isSendConfigurationPostponed(sendConfigurationId) {
         const now = Date.now();
         const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
         return sendConfigurationStatus.postponeTill > now;
     }
 
+    /* Get sendConfiguration status. */
     getSendConfigurationStatus(sendConfigurationId) {
         let status = this.sendConfigurationStatuses.get(sendConfigurationId);
         if (!status) {
@@ -338,6 +351,7 @@ class Scheduler {
         return status;
     }
 
+    /* Get all postponed sendConfiguration Ids. */
     getPostponedSendConfigurationIds() {
         const result = [];
         const now = Date.now();
@@ -351,6 +365,37 @@ class Scheduler {
         return result;
     }
 
+    /* Set new retry count for processed messages */
+    setSendConfigurationRetryCount(sendConfigurationStatus, newRetryCount) {
+        sendConfigurationStatus.retryCount = newRetryCount;
+
+        let next = 0;
+        if (newRetryCount > 0) {
+            let backoff;
+            if (newRetryCount > this.retryBackoff.length) {
+                backoff = this.retryBackoff[retryBackoff.length - 1];
+            } else {
+                backoff = this.retryBackoff[newRetryCount - 1];
+            }
+
+            next = Date.now() + backoff * 1000;
+            setTimeout(this.periodicCheck.bind(this), backoff * 1000);
+        }
+
+        sendConfigurationStatus.postponeTill = next;
+    }
+
+    /* Method called by Synchronizer when some new chunk of queued messages or campaigns are processed (SENT or FAILED) */
+    checkSentErrors(sendConfigurationId, withErrors) {
+        const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
+        if (withErrors) {
+            this.setSendConfigurationRetryCount(sendConfigurationStatus, sendConfigurationStatus.retryCount + 1);
+        } else {
+            this.setSendConfigurationRetryCount(sendConfigurationStatus, 0);
+        }
+    }
+
+    /* Get all expiration thresholds for all kind of messages which are defined in the main config file. */
     getExpirationThresholds() {
         const now = Date.now();
 

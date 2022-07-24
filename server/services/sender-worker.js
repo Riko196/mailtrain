@@ -179,6 +179,7 @@ const SenderWorkerState = {
                 if (error instanceof SendConfigurationError) {
                     log.error('SenderWorker',
                         `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. Will retry the message if within retention interval.`);
+                    await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { withErros: true });
                     break;
                 } else {
                     log.error('SenderWorker', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}.`);
@@ -244,7 +245,7 @@ const SenderWorkerState = {
                 if (error instanceof SendConfigurationError) {
                     log.error('SenderWorker',
                         `Sending message to ${target} failed with error: ${error.message}. Will retry the message if within retention interval.`);
-                    withErrors = true;
+                    await this.mongodb.collection('queued').updateOne({ _id: queuedMessage._id }, { withErros: true });
                     break;
                 } else {
                     log.error('SenderWorker',
@@ -252,7 +253,7 @@ const SenderWorkerState = {
                     log.verbose(error.stack);
 
                     try {
-                        // await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
+                        await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
                     } catch (error) {
                         log.error(error.stack);
                     }

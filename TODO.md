@@ -26,7 +26,10 @@ Note that some of these may be already obsolete...
 - Aggregated RSS campaigns
 
 ### Sender
-- Postpone and resend FAILED messages
 - Check transaction consistency among MongoDB and also Synchronizer knex queries
 - Add synchronizing into Sender
 - Use campaign functions in Synchronizer for synchronizing campaign data
+
+### Distributed Deployment
+- Set up sharding for MongoDB (in the future)
+- Add scripts for Kubernetes (in the future)

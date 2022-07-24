@@ -95,7 +95,7 @@ class Synchronizer {
         if (campaignId) {
             log.verbose('Synchronizer', `New task with pausing campaignId: ${campaignId}`);
             /* We rather delete a task from MongoDB although we have only paused it because it will be scheduled again if a client presses continue  */
-            await this.mongodb.collection('tasks').deleteMany({ 'campaign.id': campaignId });;
+            await this.mongodb.collection('tasks').deleteMany({ 'campaign.id': campaignId });
             log.verbose('Synchronizer', `Pausing campaignId: ${campaignId} successfully synchronized with MongoDB!`);
             await this.updateCampaignStatus(campaignId, CampaignStatus.PAUSED);
         }
@@ -208,6 +208,7 @@ class Synchronizer {
 
             if (!remainingCampaignMessages.length) {
                 log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
+                this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
                 await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
                 await this.updateCampaignStatus(campaignId, CampaignStatus.FINISHED);
             }
@@ -297,6 +298,8 @@ class Synchronizer {
         }).limit(CHUNK_SIZE).toArray();
 
         for (const queuedMessage of queuedMessages) {
+            this.scheduler.checkSentErrors(queuedMessage.sendConfiguration, queuedMessage.withErrors);
+
             if (queuedMessage.type === MessageType.TRIGGERED) {
                 await this.processSentTriggeredMessage(queuedMessage)
             }

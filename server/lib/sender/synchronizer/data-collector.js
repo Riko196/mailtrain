@@ -25,7 +25,7 @@ class DataCollector {
     async collectData(query) {
         // log.verbose('DataCollector', `Starting collecting data for campaign with ID ${query.campaignId}`);
         /* Result data */
-        this.data = {};
+        this.data = { withErrors: false };
 
         const type = query.type;
         await knex.transaction(async tx => {

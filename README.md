@@ -84,12 +84,12 @@ Thus, by running this script below, you agree with the Let's Encrypt's Terms of 
 
    For Centos 7 type:
     ```
-    bash setup/install-centos7-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com admin@example.com
+    bash deployment/install-scripts/install-centos7-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com admin@example.com
     ```
 
    For Ubuntu 18.04 LTS type:
     ```
-    bash setup/install-ubuntu1804-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com admin@example.com
+    bash deployment/install-scripts/install-ubuntu1804-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com admin@example.com
     ```
 
 5. Start Mailtrain and enable to be started by default when your server starts.
@@ -147,12 +147,12 @@ All endpoints (trusted, sandbox, public) will provide only HTTP as follows:
 
    For Centos 7 type:
     ```
-    bash setup/install-centos7-local.sh
+    bash deployment/install-scripts/install-centos7-local.sh
     ```
 
    For Ubuntu 18.04 LTS type:
     ```
-    bash setup/install-ubuntu1804-local.sh
+    bash deployment/install-scripts/install-ubuntu1804-local.sh
     ```
 
 5. Start Mailtrain and enable to be started by default when your server starts.
@@ -220,7 +220,7 @@ This setup starts a stack like above, but is tweaked to be used for local develo
 4. Run these commands once to install all the node modules and build the client webapp
     ```
     cd /app
-    bash setup/reinstall-modules.sh
+    bash deployment/install-scripts/reinstall-modules.sh
     cd /app/client && npm run build && cd /app
 
 5. Start the server for the first time with this command, to generate the `server/config/production.yaml`
@@ -231,12 +231,12 @@ This setup starts a stack like above, but is tweaked to be used for local develo
 
 ### Docker Environment Variables
 When using Docker, you can override the default Mailtrain settings via the following environment variables. These variables have to be defined in the docker-compose config
-file. You can give them a value directly in the `docker-compose.yml` config file. 
+file. You can give them a value directly in the `docker-compose.yml` config file.
 
-Alternatively, you can just declare them there leaving their value empty 
-(see https://docs.docker.com/compose/environment-variables/#pass-environment-variables-to-containers). In that case, the 
-value can be provided via a file called `.env` or via environment 
-variables (e.g. `URL_BASE_TRUSTED=https://mailtrain.domain.com (and more env-vars..) docker-compose -f docker-compose.yml build (or up)`)  
+Alternatively, you can just declare them there leaving their value empty
+(see https://docs.docker.com/compose/environment-variables/#pass-environment-variables-to-containers). In that case, the
+value can be provided via a file called `.env` or via environment
+variables (e.g. `URL_BASE_TRUSTED=https://mailtrain.domain.com (and more env-vars..) docker-compose -f docker-compose.yml build (or up)`)
 
 #### !!!WARNING!!! Always set ADMIN_PASSWORD, as it will leave your instance otherwise vurnerable with the default password being `test`!
 

@@ -56,13 +56,13 @@ Check out [ZoneMTA](https://github.com/zone-eu/zone-mta) as an alternative self 
 
 ### Simple Install (Ubuntu)
 
-You can download and run [install.sh](setup/install.sh) in your blank Ubuntu VPS to set up
+You can download and run [install.sh](deployment/install-scripts/install.sh) in your blank Ubuntu VPS to set up
 Mailtrain and all required dependencies (including MySQL). The installation script assumes a somewhat blank server, so if this is a machine you are already using for something else, you might want to skip the automatic install and proceed manually.
 
 If you like living on the edge and feel adventurous you can run the installation script directly from your command line as root:
 
 ```
-curl https://raw.githubusercontent.com/Mailtrain-org/mailtrain/master/setup/install.sh | sudo bash
+curl https://raw.githubusercontent.com/Mailtrain-org/mailtrain/master/deployment/install-scripts/install.sh | sudo bash
 ```
 
 Install script installs and sets up the following:
@@ -185,7 +185,7 @@ If you run Mailtrain on a VPS, you will have to find the PTR configuration somew
 * Navigate to [http://localhost:3000/users/account](http://localhost:3000/users/account) and update user information and password.
 
 **Note**: If you need to add or modify custom configurations, copy the file `config/docker-production.toml.tmpl` to `config/production.toml` and modify as you need. By default, the Docker image will do just that, automatically, so you can bring up the stack and it will work with default configurations.
-  
+
 
 ### Manual Install (any OS that supports Node.js)
 

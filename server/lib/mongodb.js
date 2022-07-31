@@ -9,13 +9,19 @@ const { MongoClient } = require('mongodb');
  * See https://docs.mongodb.com/ecosystem/drivers/node/ for more details
  */
 
+const uri = config.mongodb.uri;
+const mongoDBClient = new MongoClient(uri);
 let mongodb = null;
+
+const transactionOptions = {
+    readPreference: 'primary',
+    readConcern: { level: 'local' },
+    writeConcern: { w: 'majority' }
+};
 
 async function connectToMongoDB() {
     try {
         log.info('MongoDB', 'Connecting to MongoDB cluster...');
-        const uri = config.mongodb.uri;
-        const mongoDBClient = new MongoClient(uri);
 
         /* Connect to the MongoDB cluster */
         await mongoDBClient.connect();
@@ -28,9 +34,15 @@ async function connectToMongoDB() {
     }
 }
 
+function getNewSession() {
+    return mongoDBClient.startSession();
+}
+
 function getMongoDB() {
     return mongodb;
 }
 
+module.exports.transactionOptions = transactionOptions;
 module.exports.connectToMongoDB = connectToMongoDB;
+module.exports.getNewSession = getNewSession;
 module.exports.getMongoDB = getMongoDB;

@@ -2,7 +2,6 @@
 
 const log = require('../../log');
 const links = require('../../../models/links');
-const { getMongoDB } = require('../../mongodb');
 const { CampaignSource, CampaignMessageErrorType } = require('../../../../shared/campaigns');
 const tools = require('../../tools');
 const htmlToText = require('html-to-text');
@@ -16,7 +15,6 @@ const shortid = require('../../shortid');
 class MailMaker {
     constructor(taskData) {
         Object.assign(this, taskData);
-        this.mongodb = getMongoDB();
         this.links = [];
     }
 

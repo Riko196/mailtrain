@@ -203,13 +203,7 @@ const SenderWorkerState = {
         }).limit(CHUNK_SIZE).toArray();
 
         for (const queuedCampaignMessage of chunkQueuedCampaignMessages) {
-            const campaignData = {
-                campaign: queuedCampaignMessage.campaign,
-                sendConfiguration: queuedCampaignMessage.sendConfiguration,
-                configItems: queuedCampaignMessage.configItems,
-                isMassEmail: queuedCampaignMessage.isMassEmail
-            };
-            await this.processCampaignMessages(campaignData, chunkQueuedCampaignMessages);
+            await this.processCampaignMessages(queuedCampaignMessage, chunkQueuedCampaignMessages);
         }
 
 

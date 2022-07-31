@@ -24,8 +24,8 @@ async function queueCampaignMessageTx(tx, sendConfigurationId, listId, subscript
         }
     }
 
-    msgData.listId = listId;
-    msgData.subscriptionId = subscriptionId;
+    msgData.list = listId;
+    msgData.subscription = subscriptionId;
 
     const subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subscriptionId);
     msgData.hash_email = hashEmail(subscriptionGrouped.email);

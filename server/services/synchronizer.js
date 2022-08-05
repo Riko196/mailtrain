@@ -301,11 +301,11 @@ class Synchronizer {
             this.scheduler.checkSentErrors(queuedMessage.sendConfiguration, queuedMessage.withErrors);
 
             if (queuedMessage.type === MessageType.TRIGGERED) {
-                await this.processSentTriggeredMessage(queuedMessage)
+                await this.processSentTriggeredMessage(queuedMessage);
             }
 
             if (queuedMessage.campaign && queuedMessage.type === MessageType.TEST) {
-                await this.processSentCampaignTestMessage()
+                await this.processSentCampaignTestMessage(queuedMessage);
             }
 
             if (queuedMessage.attachments) {
@@ -328,7 +328,7 @@ class Synchronizer {
                 response: triggeredMessage.response,
                 response_id: triggeredMessage.response_id,
                 updated: new Date(),
-                hash_email: triggeredMessage.hashEmail,
+                hash_email: triggeredMessage.hashEmail
             });
 
             await knex('campaigns').where('id', triggeredMessage.campaign.id).increment('delivered');
@@ -348,8 +348,8 @@ class Synchronizer {
         try {
             await knex('test_messages').insert({
                 campaign: testMessage.campaign.id,
-                list: testMessage.listId,
-                subscription: testMessage.subscriptionId
+                list: testMessage.list,
+                subscription: testMessage.subscription
             });
         } catch (error) {
             /* The entry is already there, so we can ignore this error */

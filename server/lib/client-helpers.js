@@ -23,6 +23,8 @@ async function getAnonymousConfig(context, appType) {
         sandboxUrlBaseDir: urls.getSandboxUrlBaseDir(),
         publicUrlBase: urls.getPublicUrlBase(),
         publicUrlBaseDir: urls.getPublicUrlBaseDir(),
+        haPublicUrlBase: urls.getHaPublicUrlBase(),
+        haPublicUrlBaseDir: urls.getHaPublicUrlBaseDir(),
         appType
     }
 }

@@ -7,7 +7,7 @@ import ReactDOM from 'react-dom';
 import {TranslationRoot, withTranslation} from './i18n';
 import {parentRPC, UntrustedContentRoot} from './untrusted';
 import PropTypes from "prop-types";
-import {getPublicUrl, getSandboxUrl, getTrustedUrl} from "./urls";
+import {getHaPublicUrl, getSandboxUrl, getTrustedUrl} from "./urls";
 import {base, unbase} from "../../../shared/templates";
 import mjml2html from "./mjml";
 
@@ -74,10 +74,10 @@ export class GrapesJSSandbox extends Component {
 
         const trustedUrlBase = getTrustedUrl();
         const sandboxUrlBase = getSandboxUrl();
-        const publicUrlBase = getPublicUrl();
+        const haPublicUrlBase = getHaPublicUrl();
 
-        const source = unbase(editor.getHtml(), this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, publicUrlBase, true);
-        const style = unbase(editor.getCss(), this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, publicUrlBase, true);
+        const source = unbase(editor.getHtml(), this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, haPublicUrlBase, true);
+        const style = unbase(editor.getCss(), this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, haPublicUrlBase, true);
 
         let html;
 
@@ -97,7 +97,7 @@ export class GrapesJSSandbox extends Component {
 
             const preHtml = '<!doctype html><html><head><meta charset="utf-8"><title></title></head><body>';
             const postHtml = '</body></html>';
-            html = preHtml + unbase(htmlBody, this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, publicUrlBase, true) + postHtml;
+            html = preHtml + unbase(htmlBody, this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, haPublicUrlBase, true) + postHtml;
         }
 
 
@@ -112,7 +112,7 @@ export class GrapesJSSandbox extends Component {
         const props = this.props;
         const resp = await axios.get(getSandboxUrl(`rest/files-list/${props.entityTypeId}/file/${props.entityId}`));
         this.setState({
-            assets: resp.data.map( f => ({type: 'image', src: getPublicUrl(`files/${props.entityTypeId}/file/${props.entityId}/${f.filename}`)}) )
+            assets: resp.data.map( f => ({type: 'image', src: getHaPublicUrl(`files/${props.entityTypeId}/file/${props.entityId}/${f.filename}`)}) )
         });
     }
 
@@ -135,7 +135,7 @@ export class GrapesJSSandbox extends Component {
 
         const trustedUrlBase = getTrustedUrl();
         const sandboxUrlBase = getSandboxUrl();
-        const publicUrlBase = getPublicUrl();
+        const haPublicUrlBase = getHaPublicUrl();
 
         const config = {
             noticeOnUnload: false,
@@ -604,8 +604,8 @@ export class GrapesJSSandbox extends Component {
             config.plugins.push('gjs-preset-newsletter');
         }
 
-        config.components = props.initialSource ? base(props.initialSource, this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, publicUrlBase) : defaultSource;
-        config.style = props.initialStyle ? base(props.initialStyle, this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, publicUrlBase) : defaultStyle;
+        config.components = props.initialSource ? base(props.initialSource, this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, haPublicUrlBase) : defaultSource;
+        config.style = props.initialStyle ? base(props.initialStyle, this.props.tagLanguage, trustedUrlBase, sandboxUrlBase, haPublicUrlBase) : defaultStyle;
 
         config.plugins.push('mailtrain-remove-buttons');
 

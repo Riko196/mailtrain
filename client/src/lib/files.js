@@ -10,7 +10,7 @@ import Dropzone from "react-dropzone";
 import {Icon, ModalDialog} from "./bootstrap-components";
 import axios from './axios';
 import styles from "./styles.scss";
-import {getPublicUrl, getUrl} from "./urls";
+import {getHaPublicUrl, getUrl} from "./urls";
 import {withComponentMixins} from "./decorator-helpers";
 
 @withComponentMixins([
@@ -117,7 +117,7 @@ export default class Files extends Component {
 
                     let downloadUrl;
                     if (this.props.usePublicDownloadUrls) {
-                        downloadUrl = getPublicUrl(`files/${this.props.entityTypeId}/${this.props.entitySubTypeId}/${this.props.entity.id}/${data[2]}`);
+                        downloadUrl = getHaPublicUrl(`files/${this.props.entityTypeId}/${this.props.entitySubTypeId}/${this.props.entity.id}/${data[2]}`);
                     } else {
                         downloadUrl = getUrl(`rest/files/${this.props.entityTypeId}/${this.props.entitySubTypeId}/${data[0]}`);
                     }

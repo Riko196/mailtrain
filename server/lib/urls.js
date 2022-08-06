@@ -17,6 +17,10 @@ function getPublicUrlBase() {
     return urllib.resolve(config.www.publicUrlBase, '');
 }
 
+function getHaPublicUrlBase() {
+    return urllib.resolve(config.www.haProxyUrlBase, '');
+}
+
 function _getUrl(urlBase, path, opts) {
     const url = new URL(path || '', urlBase);
 
@@ -66,6 +70,11 @@ function getPublicUrlBaseDir() {
     return mailtrainUrl.pathname;
 }
 
+function getHaPublicUrlBaseDir() {
+    const mailtrainUrl = urllib.parse(config.www.publicUrlBase);
+    return mailtrainUrl.pathname;
+}
+
 module.exports = {
     getTrustedUrl,
     getSandboxUrl,
@@ -75,7 +84,9 @@ module.exports = {
     getTrustedUrlBase,
     getSandboxUrlBase,
     getPublicUrlBase,
+    getHaPublicUrlBase,
     getTrustedUrlBaseDir,
     getSandboxUrlBaseDir,
-    getPublicUrlBaseDir
+    getPublicUrlBaseDir,
+    getHaPublicUrlBaseDir
 };

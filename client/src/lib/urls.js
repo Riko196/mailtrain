@@ -36,6 +36,17 @@ export function getPublicUrl(path, opts) {
     return url.toString();
 }
 
+export function getHaPublicUrl(path, opts) {
+    console.log('RESULT: ', mailtrainConfig, mailtrainConfig.haPublicUrlBase);
+    const url = new URL(path || '', mailtrainConfig.haPublicUrlBase);
+
+    if (opts && opts.withLocale) {
+        url.searchParams.append('locale', i18n.language);
+    }
+
+    return url.toString();
+}
+
 export function getUrl(path) {
     if (mailtrainConfig.appType === AppType.TRUSTED) {
         return getTrustedUrl(path);
@@ -43,6 +54,8 @@ export function getUrl(path) {
         return getSandboxUrl(path);
     } else if (mailtrainConfig.appType === AppType.PUBLIC) {
         return getPublicUrl(path);
+    } else if (mailtrainConfig.appType === AppType.HAPUBLIC) {
+        return getHaPublicUrl(path);
     }
 }
 
@@ -53,5 +66,7 @@ export function getBaseDir() {
         return mailtrainConfig.sandboxUrlBaseDir + restrictedAccessToken;
     } else if (mailtrainConfig.appType === AppType.PUBLIC) {
         return mailtrainConfig.publicUrlBaseDir;
+    } else if (mailtrainConfig.appType === AppType.HAPUBLIC) {
+        return mailtrainConfig.haPublicUrlBaseDir;
     }
 }

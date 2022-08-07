@@ -257,6 +257,8 @@ async function createFiles(context, type, subType, entityId, files, replacementB
             if (getFilesTable(type, subType) === 'files_campaign_file') {
                 for (let i = 0; i < ids.length; i++) {
                     fileEntities[i]._id = ids[i];
+                    fileEntities[i].delete_pending = false;
+                    fileEntities[i].lock_count = 0;
                 }
                 await getMongoDB().collection(getFilesTable(type, subType)).insertMany(fileEntities);
             }

@@ -21,12 +21,9 @@ const transactionOptions = {
 
 async function connectToMongoDB() {
     try {
-        log.info('MongoDB', 'Connecting to MongoDB cluster...');
-
         /* Connect to the MongoDB cluster */
         await mongoDBClient.connect();
 
-        log.info('MongoDB', 'Successfully connected to MongoDB cluster!');
         /* Return mailtrain database */
         mongodb = mongoDBClient.db('mailtrain');
     } catch (error) {

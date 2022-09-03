@@ -197,7 +197,7 @@ class Scheduler {
             const nowDate = new Date();
             const now = nowDate.valueOf();
 
-            const expirationThreshold = new Date(now - config.queue.retention.campaign * 1000);
+            const expirationThreshold = new Date(now - config.sender.retention.campaign * 1000);
             const expiredCampaigns = await knex('campaigns')
                 .whereIn('campaigns.type', [CampaignType.REGULAR, CampaignType.RSS_ENTRY])
                 .whereIn('campaigns.status', [CampaignStatus.SCHEDULED, CampaignStatus.PAUSED])
@@ -290,7 +290,7 @@ class Scheduler {
                     return await finish(CampaignStatus.PAUSED);
                 }
 
-                const expirationThreshold = Date.now() - config.queue.retention.campaign * 1000;
+                const expirationThreshold = Date.now() - config.sender.retention.campaign * 1000;
                 if (campaign.start_at && campaign.start_at.valueOf() < expirationThreshold) {
                     return await finish(CampaignStatus.FINISHED);
                 }
@@ -401,19 +401,19 @@ class Scheduler {
 
         return {
             [MessageType.TRIGGERED]: {
-                threshold: now - config.queue.retention.triggered * 1000,
+                threshold: now - config.sender.retention.triggered * 1000,
                 title: 'triggered campaign'
             },
             [MessageType.TEST]: {
-                threshold: now - config.queue.retention.test * 1000,
+                threshold: now - config.sender.retention.test * 1000,
                 title: 'test campaign'
             },
             [MessageType.SUBSCRIPTION]: {
-                threshold: now - config.queue.retention.subscription * 1000,
+                threshold: now - config.sender.retention.subscription * 1000,
                 title: 'subscription and password-related'
             },
             [MessageType.API_TRANSACTIONAL]: {
-                threshold: now - config.queue.retention.apiTransactional * 1000,
+                threshold: now - config.sender.retention.apiTransactional * 1000,
                 title: 'transactional (API)'
             }
         };

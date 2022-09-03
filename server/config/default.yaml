@@ -14,6 +14,9 @@
 # Process title visible in monitoring logs and process listing
 title: mailtrain
 
+# Represents mode of maitlrain { centralized, distributed } 
+mode: centralized
+
 # GDPR related settings (https://en.wikipedia.org/wiki/General_Data_Protection_Regulation)
 gdpr:
   # If enabled, after a user unsubscribes or complains, his/her data are removed from the subscription.
@@ -197,9 +200,9 @@ cas:
 nodemailer:
   #textEncoding: base64
 
-queue:
+sender:
   # How many parallel sender processes to spawn
-  processes: 2
+  workers: 2
   # Defines range <0, maxRange) according to which we distribute messages among workers
   maxRange: 4294967296
   # For how long (in seconds) to try to send an email before Mailtrain stops to trying. An email can normally

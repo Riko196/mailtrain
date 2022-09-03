@@ -18,8 +18,8 @@ const CHUNK_SIZE = 100;
 /* Get number of all workers (it is taken from different variable according to running mode) */
 const WORKERS = process.env.SLURM_NTASKS 
     ? process.env.SLURM_NTASKS 
-    : config.queue.processes;
-const MAX_RANGE = config.queue.maxRange;
+    : config.sender.processes;
+const MAX_RANGE = config.sender.maxRange;
 
 const SenderWorkerState = {
     IDLE: 0,
@@ -37,7 +37,7 @@ const SenderWorkerState = {
             this.workerId = process.env.SLURM_PROCID;
         } else {
             /* If it is running centralized */
-            this.workerId = process.argv[2];
+            this.workerId = process.env.WORKER_ID;
         }
         
         this.workerState = SenderWorkerState.IDLE;
@@ -49,8 +49,9 @@ const SenderWorkerState = {
         }
 
         connectToMongoDB().then(() => {
+            process.send({ type: 'worker-started' });
             this.mongodb = getMongoDB();
-            //this.senderWorkerLoop();
+            this.senderWorkerLoop();
         });
     }
 

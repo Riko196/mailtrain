@@ -85,8 +85,11 @@ async function init() {
     await dbcheck();
 
     await knex.migrate.latest(); // And now the current migration with Knex
-    await mongodb.connectToMongoDB();
 
+    log.info('MongoDB', 'Connecting to MongoDB cluster...');
+    await mongodb.connectToMongoDB();
+    log.info('MongoDB', 'Successfully connected to MongoDB cluster!');
+    
     await shares.regenerateRoleNamesTable();
     await shares.rebuildPermissions();
 

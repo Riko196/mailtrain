@@ -9,7 +9,7 @@ const { MongoClient } = require('mongodb');
  * See https://docs.mongodb.com/ecosystem/drivers/node/ for more details
  */
 
-const uri = config.mongodb.uri;
+const uri = process.env.SLURM_MONGODB_URL ? process.env.SLURM_MONGODB_URL : config.mongodb.uri;
 const mongoDBClient = new MongoClient(uri);
 let mongodb = null;
 

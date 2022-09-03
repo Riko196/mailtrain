@@ -15,7 +15,10 @@ const { MessageType } = require('../../shared/messages');
 const subscriptions = require('../models/subscriptions');
 
 const CHUNK_SIZE = 100;
-const WORKERS = config.queue.processes;
+/* Get number of all workers (it is taken from different variable according to running mode) */
+const WORKERS = process.env.SLURM_NTASKS 
+    ? process.env.SLURM_NTASKS 
+    : config.queue.processes;
 const MAX_RANGE = config.queue.maxRange;
 
 const SenderWorkerState = {
@@ -29,8 +32,14 @@ const SenderWorkerState = {
  */
  class SenderWorker {
     constructor() {
-        const myArgs = process.argv.slice(2);
-        this.workerId = myArgs[0];
+        if (process.env.SLURM_PROCID) {
+            /* If it is running upon SLURM */
+            this.workerId = process.env.SLURM_PROCID;
+        } else {
+            /* If it is running centralized */
+            this.workerId = process.argv[2];
+        }
+        
         this.workerState = SenderWorkerState.IDLE;
         this.rangeFrom = Math.floor(MAX_RANGE / WORKERS)  * this.workerId;
         this.rangeTo = Math.floor(MAX_RANGE / WORKERS)  * (this.workerId + 1);
@@ -41,7 +50,7 @@ const SenderWorkerState = {
 
         connectToMongoDB().then(() => {
             this.mongodb = getMongoDB();
-            this.senderWorkerLoop();
+            //this.senderWorkerLoop();
         });
     }
 

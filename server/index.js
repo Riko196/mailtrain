@@ -81,6 +81,7 @@ async function startHTTPServer(appType, appName, port) {
 // Start the whole circus
 // ---------------------------------------------------------------------------------------
 async function init() {
+    /* Check both databases MySQL and MongoDB whether they work and are correctly setup */
     await dbcheck();
 
     await knex.migrate.latest(); // And now the current migration with Knex

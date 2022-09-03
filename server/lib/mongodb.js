@@ -38,6 +38,10 @@ function getNewSession() {
     return mongoDBClient.startSession();
 }
 
+function getMongoDBClient() {
+    return mongoDBClient;
+}
+
 function getMongoDB() {
     return mongodb;
 }
@@ -45,4 +49,5 @@ function getMongoDB() {
 module.exports.transactionOptions = transactionOptions;
 module.exports.connectToMongoDB = connectToMongoDB;
 module.exports.getNewSession = getNewSession;
+module.exports.getMongoDBClient = getMongoDBClient;
 module.exports.getMongoDB = getMongoDB;

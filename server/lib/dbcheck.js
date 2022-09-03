@@ -6,6 +6,7 @@ This module handles Mailtrain database initialization and upgrades
 
 const config = require('./config');
 const mysql = require('mysql');
+const { getMongoDBClient } = require('./mongodb');
 const log = require('./log');
 const fs = require('fs');
 const pathlib = require('path');
@@ -222,10 +223,32 @@ function runUpdates(runCount, callback) {
 const runUpdatesAsync = bluebird.promisify(runUpdates);
 const dbEndAsync = bluebird.promisify(db.end.bind(db));
 
+async function mongodbCheck() {
+    const mongoDBClient = getMongoDBClient();
+
+    /* Connecting to MongoDB server */
+    await mongoDBClient.connect();
+
+    const mailtrainDB = mongoDBClient.db('mailtrain');
+    const collections = (await mailtrainDB.listCollections().toArray()).map(collection => collection.name);
+    const mandatoryCollections = config.mongodb.collections;
+
+    /* Check all mandatory collections in database and create then if not exist */
+    for (const mandatoryCollection of mandatoryCollections) {
+        if (!collections.includes(mandatoryCollection)) {
+            await mailtrainDB.createCollection(mandatoryCollection);
+        }
+    }
+
+    mongoDBClient.close();
+}
+
 async function dbcheck() {
     await runUpdatesAsync(0);
     await dbEndAsync();
     log.info('sql', 'Database check completed');
+    await mongodbCheck();
+    log.info('MongoDB', 'Database check completed');
 }
 
 module.exports = dbcheck;

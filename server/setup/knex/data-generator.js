@@ -126,31 +126,6 @@ function getRandomInt(max) {
 }
 
 async function getFakeTriggeredMessage() {
-  await queueCampaignMessageTx(tx,
-    campaign.send_configuration, cpgList.list, subscriber.id, MessageType.TRIGGERED,
-    {
-        campaignId: campaign.id,
-        triggerId: trigger.id
-    }
-
-    const triggerId = 1
-    const campaignId =
-    const listId = listId;
-    const subscriptionId = subscriptionId;
-
-    const subscriptionGrouped = await subscriptions.getById(contextHelpers.getAdminContext(), listId, subscriptionId);
-    const hash_email = hashEmail(subscriptionGrouped.email);
-    const hashEmailPiece = hashToUint32(msgData.hash_email);
-
-    return {
-        triggerId,
-        campaignId,
-        listId,
-        subscriptionId,
-        hash_email,
-        hashEmailPiece
-    };
-);
 }
 
 async function getFakeTestMessage() {

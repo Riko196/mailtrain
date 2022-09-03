@@ -9,7 +9,7 @@
     "sqlinit": "node setup/sql/init.js",
     "sqldump": "node setup/sql/dump.js | sed -e '/^\\/\\*.*\\*\\/;$/d' -e 's/.[0-9]\\{4\\}-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]./NOW()/g' > setup/sql/mailtrain${DUMP_NAME_SUFFIX}.sql",
     "sqldrop": "node setup/sql/drop.js",
-    "knexgen": "bash setup/knex/generate-database.sh",
+    "knexgen": "node_modules/knex/bin/cli.js seed:run",
     "sqlgen": "npm run sqldrop && DB_FROM_START=Y npm run sqlinit && npm run sqldump",
     "sqldumptest": "NODE_ENV=test DUMP_NAME_SUFFIX=-test npm run sqldump",
     "sqlresettest": "NODE_ENV=test npm run sqldrop && NODE_ENV=test npm run sqlinit",

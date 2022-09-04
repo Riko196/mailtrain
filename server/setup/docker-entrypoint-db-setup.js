@@ -1,7 +1,7 @@
 'use strict';
 
 const log = require('../lib/log');
-const dbcheck = require('../lib/dbcheck');
+const { dbcheck } = require('../lib/dbcheck');
 const knex = require('../lib/knex');
 const {getAdminId} = require("../../shared/users");
 const bluebird = require('bluebird');

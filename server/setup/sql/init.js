@@ -1,6 +1,6 @@
 'use strict';
 
-let dbcheck = require('../../lib/dbcheck');
+let { dbcheck } = require('../../lib/dbcheck');
 let log = require('npmlog');
 let path = require('path');
 let fs = require('fs');

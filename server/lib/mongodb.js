@@ -31,12 +31,25 @@ async function connectToMongoDB() {
     }
 }
 
-function getNewSession() {
-    return mongoDBClient.startSession();
+async function dropMailtrainMongoDB() {
+    try {
+        /* Connect to the MongoDB cluster */
+        await mongoDBClient.connect();
+
+        /* Take mailtrain database */
+        mongodb = mongoDBClient.db('mailtrain');
+
+        /* Drop mailtrain datbase */
+        await mongodb.dropDatabase();
+
+        await mongoDBClient.close();
+    } catch (error) {
+        log.error('MongoDB', error);
+    }
 }
 
-function getMongoDBClient() {
-    return mongoDBClient;
+function getNewSession() {
+    return mongoDBClient.startSession();
 }
 
 function getMongoDB() {
@@ -46,5 +59,5 @@ function getMongoDB() {
 module.exports.transactionOptions = transactionOptions;
 module.exports.connectToMongoDB = connectToMongoDB;
 module.exports.getNewSession = getNewSession;
-module.exports.getMongoDBClient = getMongoDBClient;
+module.exports.dropMailtrainMongoDB = dropMailtrainMongoDB;
 module.exports.getMongoDB = getMongoDB;

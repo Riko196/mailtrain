@@ -18,7 +18,7 @@ const CHUNK_SIZE = 100;
 /* Get number of all workers (it is taken from different variable according to running mode) */
 const WORKERS = process.env.SLURM_NTASKS 
     ? process.env.SLURM_NTASKS 
-    : config.sender.processes;
+    : config.sender.workers;
 const MAX_RANGE = config.sender.maxRange;
 
 const SenderWorkerState = {
@@ -34,10 +34,10 @@ const SenderWorkerState = {
     constructor() {
         if (process.env.SLURM_PROCID) {
             /* If it is running upon SLURM */
-            this.workerId = process.env.SLURM_PROCID;
+            this.workerId = Number.parseInt(process.env.SLURM_PROCID);
         } else {
             /* If it is running centralized */
-            this.workerId = process.env.WORKER_ID;
+            this.workerId = Number.parseInt(process.env.WORKER_ID);
         }
         
         this.workerState = SenderWorkerState.IDLE;

@@ -32,17 +32,15 @@ class CampaignMailMaker extends MailMaker {
         const listId = campaignMessage.list;
         const subscriptionId = campaignMessage.subscription;
 
-        let subscriptionGrouped = {};
-        if (subscriptionId) {
-            const subscriber = this.subscribers.get(`${listId}:${subscriptionId}`);
-            const groupedFieldsMap = {};
-            for (const field of this.listsFieldsGrouped[listId]) {
-                groupedFieldsMap[getFieldColumn(field)] = field;
-            }
-
-            subscriptions.groupSubscription(groupedFieldsMap, subscriber);
-            subscriptionGrouped = subscriber;
+        /* Fetch data about subscriber */
+        const subscriber = this.subscribers.get(`${listId}:${subscriptionId}`);
+        const groupedFieldsMap = {};
+        for (const field of this.listsFieldsGrouped[listId]) {
+            groupedFieldsMap[getFieldColumn(field)] = field;
         }
+
+        subscriptions.groupSubscription(groupedFieldsMap, subscriber);
+        const subscriptionGrouped = subscriber;
 
         const list = this.listsById[listId];
         const mailFields = this.listsFieldsGrouped[list.id];
@@ -87,33 +85,32 @@ class CampaignMailMaker extends MailMaker {
             }
         };
 
-        if (this.campaign) {
-            const campaignAddress = [this.campaign.cid, list.cid, subscriptionGrouped.cid].join('.');
+        const campaignAddress = [this.campaign.cid, list.cid, subscriptionGrouped.cid].join('.');
 
-            if (this.useVerp) {
-                mail.envelope = {
-                    from: campaignAddress + '@' + this.sendConfiguration.verp_hostname,
-                    to: subscriptionGrouped.email
-                };
-            }
-
-            if (this.useVerpSenderHeader) {
-                mail.sender = campaignAddress + '@' + this.sendConfiguration.verp_hostname;
-            }
-
-            mail.headers['x-fbl'] = campaignAddress;
-            mail.headers['x-msys-api'] = JSON.stringify({
-                campaign_id: campaignAddress
-            });
-            mail.headers['x-smtpapi'] = JSON.stringify({
-                unique_args: {
-                    campaign_id: campaignAddress
-                }
-            });
-            mail.headers['x-mailgun-variables'] = JSON.stringify({
-                campaign_id: campaignAddress
-            });
+        if (this.useVerp) {
+            mail.envelope = {
+                from: campaignAddress + '@' + this.sendConfiguration.verp_hostname,
+                to: subscriptionGrouped.email
+            };
         }
+
+        if (this.useVerpSenderHeader) {
+            mail.sender = campaignAddress + '@' + this.sendConfiguration.verp_hostname;
+        }
+
+        mail.headers['x-fbl'] = campaignAddress;
+        mail.headers['x-msys-api'] = JSON.stringify({
+            campaign_id: campaignAddress
+        });
+        mail.headers['x-smtpapi'] = JSON.stringify({
+            unique_args: {
+                campaign_id: campaignAddress
+            }
+        });
+        mail.headers['x-mailgun-variables'] = JSON.stringify({
+            campaign_id: campaignAddress
+        });
+
 
         mail.listHeader = {
             unsubscribe: listUnsubscribe

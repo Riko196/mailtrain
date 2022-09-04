@@ -248,7 +248,9 @@ async function createFiles(context, type, subType, entityId, files, replacementB
 
             await tx(getFilesTable(type, subType)).where('entity', entityId).whereIn('id', idsToRemove).del();
             /* Synchronizing with MongoDB */
-            await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId });
+            if (getFilesTable(type, subType) === 'files_campaign_file') {
+                await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId });
+            }
         }
 
         if (fileEntities) {
@@ -324,7 +326,9 @@ async function unlockTx(tx, type, subType, id) {
     if (file.lock_count === 1 && file.delete_pending) {
         await tx(filesTableName).where('id', id).del();
         /* Synchronizing with MongoDB */
-        await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
+        if (filesTableName === 'files_campaign_file') {
+            await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
+        }
 
         const filePath = getFilePath(type, subType, file.entity, file.filename);
         await fs.removeAsync(filePath);
@@ -346,7 +350,9 @@ async function removeFile(context, type, subType, id) {
         if (!file.lock_count) {
             await tx(filesTableName).where('id', file.id).del();
             /* Synchronizing with MongoDB */
-            await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
+            if (filesTableName === 'files_campaign_file') {
+                await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
+            }
 
             const filePath = getFilePath(type, subType, file.entity, file.filename);
             await fs.removeAsync(filePath);

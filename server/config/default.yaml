@@ -140,7 +140,7 @@ mysql:
 mongodb:
   uri: mongodb://localhost:27017
   # default collections for mongodb database which are created if not exist during mailtrain starting
-  collections: ['tasks', 'queued', 'campaign_messages', 'campaign_links', 'links']
+  collections: ['tasks', 'queued', 'campaign_messages', 'campaign_links', 'links', 'files_campaign_file']
 
 verp:
   # Enable to start an MX server that detects bounced messages using VERP
@@ -198,6 +198,8 @@ cas:
 
 # extra options for nodemailer
 nodemailer:
+  # used only when we want to send real e-mail but for testing purpose
+  testReal: false
   #textEncoding: base64
 
 sender:

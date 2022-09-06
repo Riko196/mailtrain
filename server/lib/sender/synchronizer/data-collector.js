@@ -208,8 +208,8 @@ class DataCollector {
         this.data.type = query.type;
         this.data.status = CampaignMessageStatus.SCHEDULED;
         if (this.isQueuedCampaignMessage(query.type)) {
-            this.data.listId = query.listId;
-            this.data.subscriptionId = query.subscriptionId;
+            this.data.list = query.list;
+            this.data.subscription = query.subscription;
         } else {
             this.data.to = query.to;
         }

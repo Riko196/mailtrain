@@ -160,28 +160,13 @@ class Synchronizer {
         const preparedQueuedMessages = [];
         /* Collect all needed data for each queued message prepared for sending */
         for (const queuedMessage of scheduledQueuedMessages) {
-            const messageData = queuedMessage.data;
-            const collectedMessageData = await this.dataCollector.collectData({
-                type: queuedMessage.type,
-                campaignId: messageData.campaignId,
-                listId: messageData.listId,
-                subscriptionId: messageData.subscriptionId,
-                to: messageData.to,
-                hash_email: messageData.hash_email,
-                hashEmailPiece: messageData.hashEmailPiece,
-                sendConfigurationId: queuedMessage.send_configuration,
-                attachments: messageData.attachments,
-                html: messageData.html,
-                text: messageData.text,
-                subject: messageData.subject,
-                tagLanguage: messageData.tagLanguage,
-                renderedHtml: messageData.renderedHtml,
-                renderedText: messageData.renderedText,
-                rssEntry: messageData.rssEntry,
-                mergeTags: messageData.mergeTags,
-                encryptionKeys: messageData.encryptionKeys
-            });
-
+            const data = queuedMessage.data;
+            /* Merge message data with additional needed data and make query for DataCollector */
+            const query = Object.assign(data, 
+                { type: queuedMessage.type, listId: data.list, subscriptionId: data.subscription, sendConfigurationId: queuedMessage.send_configuration});
+            
+            /* Collect all needed data for this queued message and add it to the list */
+            const collectedMessageData = await this.dataCollector.collectData(query);
             preparedQueuedMessages.push(collectedMessageData);
         }
 

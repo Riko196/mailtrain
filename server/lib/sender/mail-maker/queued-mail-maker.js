@@ -13,13 +13,15 @@ class QueuedMailMaker extends MailMaker {
      *      - mergeTags [used only when campaign / html+text is provided]
      */
     async makeMail(messageData) {
+        /* Make the main variable of the whole mail with values about receiver, subject, and headers */
         const mail = { 
             to: messageData.to,
             subject: this.subject,
             headers: messageData.encryptionKeys
         };
-        const mergeTags = messageData.mergeTags;
-        const message = await this.makeMessage(mergeTags);
+
+        /* Make html and text part of the whole mail */
+        const message = await this.makeMessage(messageData.mergeTags);
         
         return this.accomplishMail(mail, message);
     }

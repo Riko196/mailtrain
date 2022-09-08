@@ -8,6 +8,12 @@ const { CampaignMessageStatus } = require('../../../../shared/campaigns');
  * The class which inherits from MailSender and is responsible for sending mails of queued not campaign (API_TRANSACTIONAL, SUBSCRIPTION) messages.
  */
 class QueuedMailSender extends MailSender {
+
+    /**
+     * 
+     * @param {*} mail - created mail for the specific subscriber prepared for sending.
+     * @param {*} queuedMessageId - ID of a queued message for which mail is sent.
+     */
     async sendMail(mail, queuedMessageId) {
         await this.mongodb.collection('queued')
             .updateOne({

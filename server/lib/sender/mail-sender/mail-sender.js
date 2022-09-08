@@ -21,10 +21,15 @@ class MailSender {
         this.configItems = configItems;
         this.isMassMail = isMassMail;
     }
-
-    addDkimKeys(transport, mail) {
-        const sendConfiguration = transport.mailer.sendConfiguration;
-
+    
+    /**
+     * If you are using ZoneMTA then Mailtrain can provide a DKIM key for signing all outgoing messages.
+     * Other services usually provide their own means to DKIM sign your messages.
+     * 
+     * @param {*} sendConfiguration - the setting according to which mails are sent.
+     * @param {*} mail - created mail for the specific subscriber prepared for sending.
+     */
+    addDkimKeys(sendConfiguration, mail) {
         if (sendConfiguration.mailer_type === MailerType.ZONE_MTA) {
             const mailerSettings = sendConfiguration.mailer_settings;
 
@@ -52,21 +57,34 @@ class MailSender {
         }
     }
 
-    async sendMailToSMTP(transport, mail, template) {
-        this.addDkimKeys(transport, mail);
+    /** 
+     * The last method that directly sends the whole mail to the appropriate SMTP server.
+     * 
+     * @param {*} transport - transport setting according to which mails are sent.
+     * @param {*} mail - created mail for the specific subscriber prepared for sending.
+     */
+    async sendMailToSMTP(transport, mail) {
+        this.addDkimKeys(transport.mailer.sendConfiguration, mail);
 
         try {
             return await transport.sendMailAsync(mail);
         } catch (err) {
             if ((err.responseCode && err.responseCode >= 400 && err.responseCode < 500)
                 || (err.code === 'ECONNECTION' && err.errno === 'ECONNREFUSED')) {
-                throw new SendConfigurationError(transport.mailer.sendConfiguration.id, 'Cannot connect to service specified by send configuration ' + transport.mailer.sendConfiguration.id);
+                throw new SendConfigurationError(transport.mailer.sendConfiguration.id,
+                    'Cannot connect to service specified by send configuration ' + transport.mailer.sendConfiguration.id);
             }
 
             throw err;
         }
     }
 
+    /** 
+     * With the given transport send mail as transactional.
+     * 
+     * @param {*} transport - transport setting according to which mails are sent.
+     * @param {*} mail - created mail for the specific subscriber prepared for sending.
+     */
     async sendTransactionalMailToSMTP(transport, mail) {
         if (!mail.headers) {
             mail.headers = {};
@@ -76,6 +94,11 @@ class MailSender {
         return await this.sendMailToSMTP(transport, mail);
     }
 
+    /** 
+     * Create transport from given send configuration which will be used in sending mail.
+     * 
+     * @param {*} sendConfiguration - the setting according to which mails are sent.
+     */
     async createTransport(sendConfiguration) {
         const mailerSettings = sendConfiguration.mailer_settings;
         const mailerType = sendConfiguration.mailer_type;
@@ -210,6 +233,11 @@ class MailSender {
         return transport;
     }
 
+    /**
+     * The main method called by SenderWorker for sending created mail.
+     * 
+     * @param {*} mail - created mail for the specific subscriber prepared for sending.
+     */
     async sendMail(mail) {
         //log.verbose('MailSender', `Starting to sending mail for ${mail.to.address} ...`);
         if (!this.transport) {
@@ -237,6 +265,11 @@ class MailSender {
         }
     }
 
+    /** 
+     * Analyze and get response according to the type of SMTP server. 
+     * 
+     * @param {*} info - A given response from SMTP server after sending the e-mail.
+     */
     analyzeResponse(info) {
         let response, responseId, match;
         if ((match = info.response.match(/^250 Message queued as ([0-9a-f]+)$/))) {

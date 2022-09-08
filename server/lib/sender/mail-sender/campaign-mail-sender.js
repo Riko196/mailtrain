@@ -15,6 +15,13 @@ class CampaignMailSender extends MailSender {
         this.blacklisted = blacklisted;
     }
 
+    /**
+     * The main method called by SenderWorker for sending created mail.
+     * 
+     * @param {*} mail - created mail for the specific subscriber prepared for sending.
+     * @param {*} type - type of message which is sent through mail (REGULAR, TRIGGERED, TEST).
+     * @param {*} campaignMessageID - ID of a campaign for which mail is sent.
+     */
     async sendMail(mail, type, campaignMessageID) {
         const collectionName = type === MessageType.REGULAR ? 'campaign_messages' : 'queued';
         log.verbose('CampaignMailSender', `Starting to sending mail for ${mail.to.address} ...`);

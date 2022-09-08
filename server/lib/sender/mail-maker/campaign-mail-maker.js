@@ -28,27 +28,27 @@ class CampaignMailMaker extends MailMaker {
      *      - mergeTags [optional, used only when campaign / html+text is provided]
      */
     async makeMail(campaignMessage) {
+        /* Make the main variable of the whole mail with default values */
         const mail = { envelope: false, sender: false, headers: {}, listHeader: false, encryptionKeys: [] };
         const listId = campaignMessage.list;
         const subscriptionId = campaignMessage.subscription;
 
-        /* Fetch data about subscriber */
+        /* Fetch data about subscriber (all defined fields) */
         const subscriber = this.subscribers.get(`${listId}:${subscriptionId}`);
         const groupedFieldsMap = {};
         for (const field of this.listsFieldsGrouped[listId]) {
             groupedFieldsMap[getFieldColumn(field)] = field;
         }
 
+        /* Merge subsciber variable and all subscriber fields */
         subscriptions.groupSubscription(groupedFieldsMap, subscriber);
         const subscriptionGrouped = subscriber;
 
         const list = this.listsById[listId];
         const mailFields = this.listsFieldsGrouped[list.id];
-
-        let mergeTags = campaignMessage.mergeTags;
-        if (!mergeTags) {
-            mergeTags = fields.getMergeTags(mailFields, subscriptionGrouped, this.getExtraTags());
-        }
+        const mergeTags = campaignMessage.mergeTags ? 
+                        campaignMessage.mergeTags :
+                        fields.getMergeTags(mailFields, subscriptionGrouped, this.getExtraTags());
 
         for (const field of mailFields) {
             if (field.type === 'gpg' && mergeTags[field.key]) {
@@ -56,15 +56,10 @@ class CampaignMailMaker extends MailMaker {
             }
         }
 
+        /* Make html and text part of the whole mail */
         const message = await this.makeMessage(mergeTags, list, subscriptionGrouped, true);
 
-        let listUnsubscribe = null;
-        if (!list.listunsubscribe_disabled) {
-            listUnsubscribe = this.campaign && this.campaign.unsubscribe_url
-                ? tools.formatCampaignTemplate(this.campaign.unsubscribe_url, this.tagLanguage, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped)
-                : getPublicUrl('/subscription/' + list.cid + '/unsubscribe/' + subscriptionGrouped.cid);
-        }
-
+        /* Set mail receiver up */
         mail.to = {
             name: list.to_name === null ?
                 undefined :
@@ -78,13 +73,7 @@ class CampaignMailMaker extends MailMaker {
             mail.subject = tools.formatCampaignTemplate(this.subject, this.tagLanguage, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped);
         }
 
-        mail.headers = {
-            'List-ID': {
-                prepared: true,
-                value: libmime.encodeWords(list.name) + ' <' + list.cid + '.' + getPublicUrl() + '>'
-            }
-        };
-
+    
         const campaignAddress = [this.campaign.cid, list.cid, subscriptionGrouped.cid].join('.');
 
         if (this.useVerp) {
@@ -98,19 +87,29 @@ class CampaignMailMaker extends MailMaker {
             mail.sender = campaignAddress + '@' + this.sendConfiguration.verp_hostname;
         }
 
-        mail.headers['x-fbl'] = campaignAddress;
-        mail.headers['x-msys-api'] = JSON.stringify({
-            campaign_id: campaignAddress
-        });
-        mail.headers['x-smtpapi'] = JSON.stringify({
-            unique_args: {
-                campaign_id: campaignAddress
-            }
-        });
-        mail.headers['x-mailgun-variables'] = JSON.stringify({
-            campaign_id: campaignAddress
-        });
+        /* Set mail headers up */
+        mail.headers = {
+            'List-ID': {
+                prepared: true,
+                value: libmime.encodeWords(list.name) + ' <' + list.cid + '.' + getPublicUrl() + '>'
+            },
+            'x-fbl': campaignAddress,
+            'x-msys-api': JSON.stringify({ campaign_id: campaignAddress }),
+            'x-smtpapi': JSON.stringify({
+                unique_args: {
+                    campaign_id: campaignAddress
+                }
+            }),
+            'x-mailgun-variables': JSON.stringify({ campaign_id: campaignAddress })
+        };
 
+        /* Set unsubscribe link up if it exists */
+        let listUnsubscribe = null;
+        if (!list.listunsubscribe_disabled) {
+            listUnsubscribe = this.campaign && this.campaign.unsubscribe_url
+                ? tools.formatCampaignTemplate(this.campaign.unsubscribe_url, this.tagLanguage, mergeTags, false, this.campaign, this.listsById, list, subscriptionGrouped)
+                : getPublicUrl('/subscription/' + list.cid + '/unsubscribe/' + subscriptionGrouped.cid);
+        }
 
         mail.listHeader = {
             unsubscribe: listUnsubscribe
@@ -119,6 +118,7 @@ class CampaignMailMaker extends MailMaker {
         return this.accomplishMail(mail, message);
     }
 
+    /* Set extra tags up if it concerns RSS campaign */
     getExtraTags() {
         const tags = {};
 

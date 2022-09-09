@@ -141,7 +141,7 @@ enabled=1
 gpgkey=https://www.mongodb.org/static/pgp/server-4.0.asc
 EOT
 
-            yum -y install mariadb-server nodejs ImageMagick redis pwgen gcc-c++ make mongodb-org bzip2
+            yum -y install mariadb-server nodejs ImageMagick redis pwgen gcc-c++ make mongodb-org bzip2 haproxy
             ;;
 
 
@@ -160,18 +160,19 @@ EOT
             dnf -y module install nodejs/development
             dnf -y module install mariadb/server
             dnf -y module install redis
-            dnf -y install ImageMagick pwgen gcc-c++ make mongodb-org bzip2
+            dnf -y install ImageMagick pwgen gcc-c++ make mongodb-org bzip2 haproxy
             ;;
 
 
         ubuntu1804)
+            apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 9DA31620334BD75D9DCB49F368818C72E52529D4
             curl -sL https://deb.nodesource.com/setup_14.x | sudo -E bash -
+            apt-get update && apt-get install -y gnupg wget build-essential bzip2 imagemagick pwgen
 
-            sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv 9DA31620334BD75D9DCB49F368818C72E52529D4
-            echo "deb [ arch=amd64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.0.list
-            apt-get update
+            wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | sudo apt-key add -
+            echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/4.2 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-4.2.list
 
-            apt-get install -y mariadb-server build-essential nodejs imagemagick redis pwgen mongodb-org bzip2 wget curl
+            apt-get update && apt-get install -y mariadb-server mongodb-org nodejs redis haproxy
 	    installMariaDBFixKeyLength
             ;;
 
@@ -182,21 +183,11 @@ EOT
 	    wget -qO - https://www.mongodb.org/static/pgp/server-4.2.asc | apt-key add -
 	    echo "deb http://repo.mongodb.org/apt/debian buster/mongodb-org/4.2 main" | tee /etc/apt/sources.list.d/mongodb-org-4.2.list
             apt-get update
-            apt-get install -y mariadb-server nodejs imagemagick redis pwgen mongodb-org bzip2
+            apt-get install -y mariadb-server nodejs imagemagick redis pwgen mongodb-org bzip2 haproxy
 	    installMariaDBFixKeyLength
             ;;
 
     esac
-
-
-    systemctl start mariadb
-    systemctl enable mariadb
-
-    systemctl start ${redisService}
-    systemctl enable ${redisService}
-
-    systemctl start mongod
-    systemctl enable mongod
 }
 
 function installMariaDBFixKeyLength() {
@@ -220,12 +211,30 @@ function installMailtrain {
     mysqlPassword=`pwgen 12 -1`
     mysqlRoPassword=`pwgen 12 -1`
 
-    # Setup MySQL user for Mailtrain
+    # Start MySQL (MariaDB) and MySQL user for Mailtrain
+    systemctl start mariadb
+    systemctl enable mariadb
+
     mysql -u root -e "CREATE USER 'mailtrain'@'localhost' IDENTIFIED BY '$mysqlPassword';"
     mysql -u root -e "GRANT ALL PRIVILEGES ON mailtrain.* TO 'mailtrain'@'localhost';"
     mysql -u root -e "CREATE USER 'mailtrain_ro'@'localhost' IDENTIFIED BY '$mysqlRoPassword';"
     mysql -u root -e "GRANT SELECT ON mailtrain.* TO 'mailtrain_ro'@'localhost';"
     mysql -u mailtrain --password="$mysqlPassword" -e "CREATE DATABASE mailtrain CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;"
+
+    # Setup MongoDB cluster for Mailtrain
+    mv deployment/centralized/mongod.conf /etc/mongod.conf
+    systemctl start mongod
+    systemctl enable mongod
+    mongo --eval "rs.initiate()"
+
+    # Setup HAProxy for Mailtrain
+    mv deployment/centralized/haproxy.cfg /etc/haproxy/haproxy.cfg
+    systemctl start haproxy
+    systemctl enable haproxy
+
+    # Setup Redis
+    systemctl start ${redisService}
+    systemctl enable ${redisService}
 
     # Add new user for the mailtrain daemon to run as
     useradd mailtrain || true
@@ -259,8 +268,8 @@ builtinZoneMTA:
   log:
     level: warn
 
-queue:
-  processes: 5
+sender:
+  workers: 5
 EOT
 
     cat >> server/services/workers/reports/config/production.yaml <<EOT
@@ -279,7 +288,6 @@ EOT
     chown -R mailtrain:mailtrain .
     chmod o-rwx server/config
 }
-
 
 function doForAllModules {
     # Install required node packages
@@ -570,8 +578,8 @@ builtinZoneMTA:
   log:
     level: warn
 
-queue:
-  processes: 5
+sender:
+  workers: 5
 
 testServer:
   enabled: true

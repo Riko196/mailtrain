@@ -3,8 +3,7 @@
 const config = require('./lib/config');
 const log = require('./lib/log');
 const appBuilder = require('./app-builder');
-const translate = require('./lib/translate');
-const http = require('http');
+const { startHTTPServer } = require('./lib/http-server');
 const triggers = require('./services/triggers');
 const gdprCleanup = require('./services/gdpr-cleanup');
 const importer = require('./lib/importer');
@@ -15,12 +14,12 @@ const postfixBounceServer = require('./services/postfix-bounce-server');
 const tzupdate = require('./services/tzupdate');
 const { dbcheck } = require('./lib/dbcheck');
 const sender = require('./lib/sender/sender');
+const hapublic = require('./lib/hapublic/hapublic');
 const reportProcessor = require('./lib/report-processor');
 const executor = require('./lib/executor');
 const privilegeHelpers = require('./lib/privilege-helpers');
 const knex = require('./lib/knex');
 const mongodb = require('./lib/mongodb');
-const bluebird = require('bluebird');
 const shares = require('./models/shares');
 const { AppType } = require('../shared/app');
 const builtinZoneMta = require('./lib/builtin-zone-mta');
@@ -33,49 +32,10 @@ const { filesDir } = require('./models/files');
 const trustedPort = config.www.trustedPort;
 const sandboxPort = config.www.sandboxPort;
 const publicPort = config.www.publicPort;
-const haPublicPorts = config.www.haPublicPorts;
-const host = config.www.host;
 
 if (config.title) {
     process.title = config.title;
 }
-
-async function startHTTPServer(appType, appName, port) {
-    const app = await appBuilder.createApp(appType, port);
-    app.set('port', port);
-
-    const server = http.createServer(app);
-
-    server.on('error', err => {
-        if (err.syscall !== 'listen') {
-            throw err;
-        }
-
-        const bind = typeof port === 'string' ? 'Pipe ' + port : 'Port ' + port;
-
-        // handle specific listen errors with friendly messages
-        switch (err.code) {
-            case 'EACCES':
-                log.error('Express', '%s requires elevated privileges', bind);
-                return process.exit(1);
-            case 'EADDRINUSE':
-                log.error('Express', '%s is already in use', bind);
-                return process.exit(1);
-            default:
-                throw err;
-        }
-    });
-
-    server.on('listening', () => {
-        const addr = server.address();
-        const bind = typeof addr === 'string' ? 'pipe ' + addr : 'port ' + addr.port;
-        log.info('Express', 'WWW server [%s] listening on %s', appName, bind);
-    });
-
-    const serverListenAsync = bluebird.promisify(server.listen.bind(server));
-    await serverListenAsync({port, host});
-}
-
 
 // ---------------------------------------------------------------------------------------
 // Start the whole circus
@@ -112,11 +72,7 @@ async function init() {
     await startHTTPServer(AppType.TRUSTED, 'trusted', trustedPort);
     await startHTTPServer(AppType.SANDBOXED, 'sandbox', sandboxPort);
     await startHTTPServer(AppType.PUBLIC, 'public', publicPort);
-
-    /* Start n HAPUBLIC servers which are controlled by HAProxy process */
-    for (const haPublicPort of haPublicPorts) {
-        await startHTTPServer(AppType.HAPUBLIC, 'haPublic', haPublicPort);
-    }
+    await hapublic.spawn();
 
     privilegeHelpers.dropRootPrivileges();
 

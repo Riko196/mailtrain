@@ -96,9 +96,9 @@ async function spawn(callback) {
 
         /* Wait until every worker starts */
         await Promise.all(spawnWorkerFutures);
-
-        return callback();
     }
+
+    return callback();
 }
 
 module.exports.spawn = bluebird.promisify(spawn);

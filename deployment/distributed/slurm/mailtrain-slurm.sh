@@ -5,25 +5,25 @@
 #
 #   $ ssh kucake@parlab.ms.mff.cuni.cz -p 42222
 #
-# Build image (get Dockerfile from mailtrain/deployment/distributed and run commands):
+# Run script in Slurm cluster from home directory '~':
 #
-#   1. ch-image build ./mailtrain --force .
-#   2. ch-convert mailtrain ~/mailtrain
+#   $ sbatch -p mpi-homo-short -A kdsstudent create-containers.sh
 #
-# Run an example mailtrain sender-workers computation. Requires four arguments:
+# Run Mailtrain app from home directory '~', it requires four arguments:
 #
-#   1. Image directory
-#   2. High-speed network interface name
-#   3. R/W directory
-#   4. Application
+#   1. High-speed network interface name
+#   2. Mariadb database directory
+#   3. MongoDB database directory
+#   4. TMP directory
 # 
+# Example command for running app in Slurm cluster from home directory '~':
+#
+#   $ sbatch -p mpi-homo-short -A kdsstudent mailtrain-slurm.sh eno1 ~/mariadb ~/mongodb ~/tmp
+#
 # Tunnel port:
 #
-#   $ ssh -L :7020:127.0.0.1:22 ${server_ip}
+#   $ ssh -L :7020:127.0.0.1:22 ${mailtrain_ip}
 #
-# Run app in Slurm cluster from home directory '~':
-#
-#   $ sbatch -p mpi-homo-short -A kdsstudent mailtrain-slurm.sh ~/mailtrain eno1 ~/mariadb ~/mongodb ~/tmp
 #
 
 set -e
@@ -33,50 +33,57 @@ if [[ -z $SLURM_JOB_ID ]]; then
     exit 1
 fi
 
-img=$1
-dev=$2
-mariadbdir=$3
-mongodbdir=$4
-tmpdir=$5
+mailtrainimg=~/mailtrain_container
+mariadbimg=~/mariadb_container
+mongodbimg=~/mongo_container
+haproxyimg=~/haproxy_container
+dev=$1
+mariadbdir=$2
+mongodbdir=$3
+tmpdir=$4
 
 # What IP address to use for mariadb and mongodb server?
 if [[ -z $dev ]]; then
     echo "no high-speed network device specified"
     exit 1
 fi
-server_ip=$(  ip -o -f inet addr show dev "$dev" \
+mailtrain_ip=$(  ip -o -f inet addr show dev "$dev" \
             | sed -r 's/^.+inet ([0-9.]+).+/\1/')
-mongodb_url=mongodb://${server_ip}:27017
-if [[ -n $server_ip ]]; then
-    echo "MariaDB and MongoDB server IP: ${server_ip}"
+mongodb_url=mongodb://${mailtrain_ip}:27017
+if [[ -n $mailtrain_ip ]]; then
+    echo "Mailtrain main node IP: ${mailtrain_ip}"
 else
     echo "no IP address for ${dev} found"
     exit 1
 fi
 
 # Start the mariadb server
-ch-run -b "$mariadbdir:/var/lib/mysql" -b "$tmpdir/mysqld:/run" "$img" -- /etc/init.d/mysql start &
+ch-run -b "$mariadbdir:/var/lib/mysql" -b "$tmpdir/mariadb:/run" "$mariadbimg" -- /usr/local/bin/docker-entrypoint.sh --verbose --bind-address=localhost &
 sleep 5
 
 echo "MariaDB server is running!"
 
 # Start the mongodb server and initialize mongodb cluster
-ch-run -b "$mongodbdir:/data/db" -b "$tmpdir:/tmp" "$img" -- mongod &
+ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- mongod &
 sleep 5
-ch-run -b "$mongodbdir:/data/db" -b "$tmpdir:/tmp" "$img" -- "mongosh --eval 'rs.initiate()'"
 
 echo "MongoDB server is running!"
 
 # Start HAProxy
-ch-run "$img" -- haproxy
+ch-run -b "$tmpdir/haproxy:/usr/local/etc/haproxy" "$haproxyimg" -- /usr/local/bin/docker-entrypoint.sh &
 sleep 3
 
 echo "HAProxy is running!"
 
+# Start Mailtrain
+mailtrain_src="${mailtrainimg}/opt/mailtrain/server"
+ch-run -c "$mailtrain_src" -b "$tmpdir/files:/opt/mailtrain/server/files" "$mailtrainimg" -- node index.js && sleep infinity
+exit 1
+
 # Start sender-workers
-mailtrain_src="${img}/opt/mailtrain/server"
+mailtrain_src="${mailtrainimg}/opt/mailtrain/server"
 srun -p mpi-homo-short -A kdsstudent sh -c "(SLURM_MONGODB_URL='${mongodb_url}' ch-run -c '${mailtrain_src}' '${img}' -- \
                        node services/sender-worker.js \
                        && sleep infinity)"
 
-# Let Slurm kill the workers and server
+echo "Mailtrain main node IP: ${mailtrain_ip}"

@@ -17,13 +17,13 @@ if [[ -z $SLURM_JOB_ID ]]; then
     exit 1
 fi
 
-ch-image pull mariadb
-ch-convert mariadb ~/mariadb_container
-ch-image delete mariadb
+ch-image pull mariadb:10.6.7
+ch-convert mariadb:10.6.7 ~/mariadb_container
+ch-image delete mariadb:10.6.7
 
-ch-image pull mongo
-ch-convert mongo ~/mongo_container
-ch-image delete mongo
+ch-image pull mongo:4.2.22
+ch-convert mongo:4.2.22 ~/mongo_container
+ch-image delete mongo:4.2.22
 
 ch-image pull haproxy
 ch-convert haproxy ~/haproxy_container

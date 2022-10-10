@@ -55,8 +55,6 @@ class CampaignMailSender extends MailSender {
                     }, {
                         $set: {
                             status: CampaignMessageStatus.FAILED,
-                            response: result.response,
-                            response_id: result.responseId,
                             updated: new Date()
                         }
                     });

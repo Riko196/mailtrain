@@ -823,15 +823,24 @@ async function changeStatusByMessage(context, message, campaignMessageStatus, up
     });
 }
 
-/* TODO Should I remove it ? */
-async function updateMessageResponse(context, message, response, responseId) {
+async function updateCampaignStatus(context, campaignId, status) {
     await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'campaign', message.campaign, 'manageMessages');
+        await shares.enforceEntityPermissionTx(tx, context, 'campaign', campaignId, 'edit');
 
-        await tx('campaign_messages').where('id', message.id).update({
-            response,
-            response_id: responseId
-        });
+        await tx('campaigns').where('id', campaignId).update({ status });
+        await activityLog.logEntityActivity('campaign',
+            CampaignActivityType.STATUS_CHANGE,
+            campaignId,
+            { status }
+        );
+    });
+}
+
+async function updateMessageResponse(context, id, campaign, status, response, response_id) {
+    await knex.transaction(async tx => {
+        await shares.enforceEntityPermissionTx(tx, context, 'campaign', campaign, 'manageMessages');
+
+        await tx('campaign_messages').where('id', id).update({ status, response, response_id, updated: new Date() });
     });
 }
 
@@ -1192,6 +1201,7 @@ module.exports.getMessageByResponseId = getMessageByResponseId;
 
 module.exports.changeStatusByCampaignCidAndSubscriptionIdTx = changeStatusByCampaignCidAndSubscriptionIdTx;
 module.exports.changeStatusByMessage = changeStatusByMessage;
+module.exports.updateCampaignStatus = updateCampaignStatus;
 module.exports.updateMessageResponse = updateMessageResponse;
 
 module.exports.prepareCampaignMessages = prepareCampaignMessages;

@@ -1,5 +1,5 @@
 #!/bin/bash
-## #SBATCH --time=0:30:00 -N 6 -c 16 -p mpi-homo-short --mem 101G
+#SBATCH --time=2:00:00 -N 8 -c 16 -p mpi-homo-short --mem 101G
 #
 # Login into the cluster:
 #
@@ -49,7 +49,6 @@ if [[ -z $dev ]]; then
 fi
 mailtrain_ip=$(  ip -o -f inet addr show dev "$dev" \
             | sed -r 's/^.+inet ([0-9.]+).+/\1/')
-mongodb_url=mongodb://${mailtrain_ip}:27017
 if [[ -n $mailtrain_ip ]]; then
     echo "Mailtrain main node IP: ${mailtrain_ip}"
 else
@@ -59,30 +58,31 @@ fi
 
 # Start the mariadb server
 ch-run -b "$mariadbdir:/var/lib/mysql" -b "$tmpdir/mariadb:/run" "$mariadbimg" -- /usr/local/bin/docker-entrypoint.sh --verbose --bind-address=localhost &
-sleep 5
+sleep 2
 
 echo "MariaDB server is running!"
 
 # Start the mongodb server and initialize mongodb cluster
-ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- mongod &
+ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- /usr/local/bin/docker-entrypoint.sh --config /etc/mongod.conf.orig &
 sleep 5
+ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- mongo --eval "rs.initiate()" &
 
 echo "MongoDB server is running!"
 
 # Start HAProxy
 ch-run -b "$tmpdir/haproxy:/usr/local/etc/haproxy" "$haproxyimg" -- /usr/local/bin/docker-entrypoint.sh &
-sleep 3
+sleep 2
 
 echo "HAProxy is running!"
 
 # Start Mailtrain
 mailtrain_src="${mailtrainimg}/opt/mailtrain/server"
-ch-run -c "$mailtrain_src" -b "$tmpdir/files:/opt/mailtrain/server/files" "$mailtrainimg" -- node index.js && sleep infinity
-exit 1
+ch-run -c "$mailtrain_src" -b "$tmpdir/files:/opt/mailtrain/server/files" "$mailtrainimg" -- node index.js &
+sleep 5
 
 # Start sender-workers
-mailtrain_src="${mailtrainimg}/opt/mailtrain/server"
-srun -p mpi-homo-short -A kdsstudent sh -c "(SLURM_MONGODB_URL='${mongodb_url}' ch-run -c '${mailtrain_src}' '${img}' -- \
+mongodb_url=mongodb://${mailtrain_ip}:27017
+srun -p mpi-homo-short -A kdsstudent -n 16 sh -c "(SLURM_MONGODB_URL='${mongodb_url}' ch-run -c '${mailtrain_src}' '${mailtrainimg}' -- \
                        node services/sender-worker.js \
                        && sleep infinity)"
 

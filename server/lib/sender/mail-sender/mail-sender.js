@@ -67,7 +67,11 @@ class MailSender {
         this.addDkimKeys(transport.mailer.sendConfiguration, mail);
 
         try {
-            return await transport.sendMailAsync(mail);
+            // return await transport.sendMailAsync(mail);
+            return { 
+                response: '250 OK',
+                messageId: '<xxxxxxxxx@xxx.xx>'
+            };
         } catch (err) {
             if ((err.responseCode && err.responseCode >= 400 && err.responseCode < 500)
                 || (err.code === 'ECONNECTION' && err.errno === 'ECONNREFUSED')) {
@@ -172,16 +176,6 @@ class MailSender {
 
         } else {
             throw new Error('Invalid mail transport');
-        }
-
-        if (config.nodemailer.testReal) {
-            transportOptions = {
-                service: config.nodemailer.service,
-                auth: {
-                  user: config.nodemailer.user,
-                  pass: config.nodemailer.password
-                }
-            };
         }
 
         const transport = nodemailer.createTransport(transportOptions, config.nodemailer);

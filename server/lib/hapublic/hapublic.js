@@ -13,7 +13,7 @@ async function spawnWorker(workerPort) {
     return await new Promise((resolve, reject) => {
         log.verbose('HAPUBLIC', `Spawning worker process ${workerPort}`);
 
-        const workerProcess = fork(path.join(__dirname, '..', '..', 'services', 'hapublic-worker.js'), [], {
+        const workerProcess = fork(path.join(__dirname, 'hapublic-worker.js'), [], {
             cwd: path.join(__dirname, '..', '..'),
             env: {
                 NODE_ENV: process.env.NODE_ENV,

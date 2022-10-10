@@ -1,8 +1,8 @@
-const { connectToMongoDB } = require('../lib/mongodb');
-const { AppType } = require('../../shared/app');
-const appBuilder = require('../app-builder');
-const { startHTTPServer } = require('../lib/http-server');
-const config = require('../lib/config');
+const { connectToMongoDB } = require('../mongodb');
+const { AppType } = require('../../../shared/app');
+const appBuilder = require('../../app-builder');
+const { startHTTPServer } = require('../http-server');
+const config = require('../config');
 
 /* The port on which will HAPUBLIC worker run. */
 const workerPort = process.env.WORKER_PORT;

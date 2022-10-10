@@ -5,14 +5,14 @@ const config = require('../lib/config');
 const knex = require('../lib/knex');
 const { MessageType } = require('../../shared/messages');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
-const activityLog = require('../lib/activity-log');
-const { CampaignActivityType } = require('../../shared/activity-log');
 const log = require('../lib/log');
 const links = require('../models/links');
+const campaigns = require('../models/campaigns');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const Scheduler = require('../lib/sender/synchronizer/scheduler');
+const contextHelpers = require('../lib/context-helpers');
 
-const CHUNK_SIZE = 1000;
+const CHUNK_SIZE = 10000;
 
 /**
  * The main component for synchronizing between non-high-available centralized Mailtrain and high-available
@@ -75,7 +75,7 @@ class Synchronizer {
                 }
             } catch(error) {
                 log.error('Synchronizer', `Synchronizing failed with error: ${error.message}`);
-                log.verbose(error.stack);
+                log.error(error.stack);
             }
         }
     }
@@ -97,7 +97,7 @@ class Synchronizer {
             /* We rather delete a task from MongoDB although we have only paused it because it will be scheduled again if a client presses continue  */
             await this.mongodb.collection('tasks').deleteMany({ 'campaign.id': campaignId });
             log.verbose('Synchronizer', `Pausing campaignId: ${campaignId} successfully synchronized with MongoDB!`);
-            await this.updateCampaignStatus(campaignId, CampaignStatus.PAUSED);
+            await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.PAUSED);
         }
     }
 
@@ -118,19 +118,8 @@ class Synchronizer {
 
             await this.mongodb.collection('tasks').insertOne(campaignData);
             log.verbose('Synchronizer', `New task with campaignId: ${campaignId} successfully sent to MongoDB!`);
-            await this.updateCampaignStatus(campaignId, CampaignStatus.SENDING);
+            await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.SENDING);
         }
-    }
-
-    async updateCampaignStatus(campaignId, status) {
-        await knex.transaction(async tx => {
-            await tx('campaigns').where('id', campaignId).update({ status });
-            await activityLog.logEntityActivity('campaign',
-                CampaignActivityType.STATUS_CHANGE,
-                campaignId,
-                { status }
-            );
-        });
     }
 
     selectScheduledQueuedMessages() {
@@ -181,21 +170,21 @@ class Synchronizer {
     async synchronizeSendingCampaignsFromMongoDB() {
         await this.synchronizeLinksFromMongoDB();
         await this.synchronizeClickedLinksFromMongoDB();
-        await this.synchronizeSentCampaignMessagesFromMongoDB();
+        await this.synchronizeCountOfSentCampaignMessages();
+        await this.synchronizeCampaignMessagesFromMongoDB();
 
         /* Find FINISHED campaigns and remove them from tasks */
         const sendingCampaigns = await this.mongodb.collection('tasks').find({}).limit(CHUNK_SIZE).toArray();
         for (const sendingCampaign of sendingCampaigns) {
             const campaignId = sendingCampaign.campaign.id;
-            const remainingCampaignMessages = await this.mongodb.collection('campaign_messages').find({
+            const remainingCampaignMessages = await this.mongodb.collection('campaign_messages').countDocuments({
                 campaign: campaignId
-            }).limit(CHUNK_SIZE).toArray();
+            });
 
-            if (!remainingCampaignMessages.length) {
+            if (!remainingCampaignMessages) {
                 log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
                 this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
                 await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
-                await this.updateCampaignStatus(campaignId, CampaignStatus.FINISHED);
             }
         }
     }
@@ -236,41 +225,85 @@ class Synchronizer {
         await this.mongodb.collection('campaign_links').deleteMany({ _id: { $in: deletingIds } });
     }
 
+    /* Synchronize count of currently sent campaign messages from MongoDB and MySQL */
+    async synchronizeCountOfSentCampaignMessages() {
+        const sendingCampaigns = await knex('campaigns').where({ status: CampaignStatus.SENDING });
+
+        for (const sendingCampaign of sendingCampaigns) {
+            const campaignId = sendingCampaign.id;
+
+            /* Find count of sent messages from MySQL */
+            const mysqlSentCount = await knex('campaign_messages').where({ 
+                campaign: campaignId,
+                status: CampaignMessageStatus.SENT
+            }).count('* as count').first();
+
+            /* Find count of sent messages from MongoDB */
+            const mongodbSentCount = await this.mongodb.collection('campaign_messages').countDocuments({
+                campaign: campaignId,
+                status: CampaignMessageStatus.SENT,
+                response: { $ne: null }
+            });
+
+            const delivered = mysqlSentCount.count + mongodbSentCount;
+
+            /* Find count of all messages from MySQL */
+            const allMessages = await knex('campaign_messages').where({ campaign: campaignId }).count('* as count').first();
+            console.log('MESSAGES: ', allMessages.count);
+            /* Update value of delivered messages */
+            await knex('campaigns').where('id', campaignId).update({ delivered });
+
+            /* If all messages are sent then update campaign status */
+            if (delivered === allMessages.count) {
+                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
+            }
+        }
+    }
+
+    /* Synchronize all campaign messages from MongoDB and do the final processing (update campaign_messages table) */
+    async synchronizeCampaignMessagesFromMongoDB() {
+        await this.synchronizeSentCampaignMessagesFromMongoDB();
+        await this.synchronizeFailedCampaignMessagesFromMongoDB();
+    }
+
     /* Synchronize all sent campaign messages from MongoDB and do the final processing (update campaign_messages table) */
     async synchronizeSentCampaignMessagesFromMongoDB() {
-        const campaignMessages = await this.mongodb.collection('campaign_messages').find({
-            status: { $in: [CampaignMessageStatus.SENT, CampaignMessageStatus.FAILED] },
+        const sentCampaignMessages = await this.mongodb.collection('campaign_messages').find({
+            status: CampaignMessageStatus.SENT,
             response: { $ne: null }
         }).limit(CHUNK_SIZE).toArray();
 
-        if (campaignMessages.length === 0) {
+        if (sentCampaignMessages.length === 0) {
             return;
         }
 
-        log.verbose('Synchronizer', `Received ${campaignMessages.length} sent messages from MongoDB!`);
-        for (const campaignMessage of campaignMessages) {
-            if (campaignMessage.status === CampaignMessageStatus.FAILED) {
-                await knex('campaign_messages')
-                    .where({ id: campaignMessage._id })
-                    .update({
-                        status: CampaignMessageStatus.FAILED,
-                        updated: new Date()
-                    });
-            } else {
-                await knex('campaign_messages')
-                    .where({ id: campaignMessage._id })
-                    .update({
-                        status: CampaignMessageStatus.SENT,
-                        response: campaignMessage.response,
-                        response_id: campaignMessage.responseId,
-                        updated: new Date()
-                    });
-
-                await knex('campaigns').where('id', campaignMessage.campaign).increment('delivered');
-            }
+        log.verbose('Synchronizer', `Received ${sentCampaignMessages.length} sent messages from MongoDB!`);
+        for (const sentCampaignMessage of sentCampaignMessages) {
+            const { _id, campaign, status, response, responseId } = sentCampaignMessage;
+            await campaigns.updateMessageResponse(contextHelpers.getAdminContext(), _id, campaign, status, response, responseId);
         }
 
-        const deletingIds = campaignMessages.map(campaignMessage => campaignMessage._id);
+        const deletingIds = sentCampaignMessages.map(sentCampaignMessage => sentCampaignMessage._id);
+        await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
+    }
+
+    /* Synchronize all failed campaign messages from MongoDB and do the final processing (update campaign_messages table) */
+    async synchronizeFailedCampaignMessagesFromMongoDB() {
+        const failedCampaignMessages = await this.mongodb.collection('campaign_messages').find({
+            status: CampaignMessageStatus.FAILED
+        }).limit(CHUNK_SIZE).toArray();
+
+        if (failedCampaignMessages.length === 0) {
+            return;
+        }
+
+        log.verbose('Synchronizer', `Received ${failedCampaignMessages.length} failed messages from MongoDB!`);
+        for (const failedCampaignMessage of failedCampaignMessages) {
+            const { _id, campaign, status, response, responseId } = failedCampaignMessage;
+            await campaigns.updateMessageResponse(contextHelpers.getAdminContext(), _id, campaign, status, response, responseId);
+        }
+
+        const deletingIds = failedCampaignMessages.map(failedCampaignMessage => failedCampaignMessage._id);
         await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
     }
 

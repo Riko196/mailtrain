@@ -9,18 +9,20 @@ const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker'
 const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-sender');
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
+const PlatformSolver = require('../lib/sender/platform-solver');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
 const { MessageType } = require('../../shared/messages');
 const subscriptions = require('../models/subscriptions');
 
+/** Chunk of messages which will be processed in one iteration. */
 const CHUNK_SIZE = 100;
-/* Get number of all workers (it is taken from different variable according to running mode) */
-const WORKERS = process.env.SLURM_NTASKS 
-    ? process.env.SLURM_NTASKS 
-    : config.sender.workers;
+/** Get number of all workers (it is taken from different variable according to running mode) */
+const WORKERS = PlatformSolver.getNumberOfWorkers();
+/** It defines range of e-mail hash values according to which the workers divide their messages for sending. */
 const MAX_RANGE = config.sender.maxRange;
 
+/** It defines all possible states in which one worker can appear. */
 const SenderWorkerState = {
     IDLE: 0,
     SENDING: 1,
@@ -32,33 +34,45 @@ const SenderWorkerState = {
  */
  class SenderWorker {
     constructor() {
-        if (process.env.SLURM_PROCID) {
-            /* If it is running upon SLURM */
-            this.workerId = Number.parseInt(process.env.SLURM_PROCID);
-        } else {
-            /* If it is running centralized */
-            this.workerId = Number.parseInt(process.env.WORKER_ID);
-        }
-        
+        this.workerId = PlatformSolver.getWorkerId();
         this.workerState = SenderWorkerState.IDLE;
         this.rangeFrom = Math.floor(MAX_RANGE / WORKERS)  * this.workerId;
         this.rangeTo = Math.floor(MAX_RANGE / WORKERS)  * (this.workerId + 1);
+        /* Values which says whether worker is running (true) or it is just accomplishing unfinished work (false) and will be killed after iteration */
+        this.running = true;
 
-        if (this.rangeTo > MAX_RANGE) {
+        /* If it is the last worker then assign MAX_RANGE */
+        if (this.workerId === WORKERS - 1) {
             this.rangeTo = MAX_RANGE;
         }
 
+        /* Catch Ctrl-C */
+        process.on('SIGINT', () => console.log("KOKOT")); 
+        /* Catch kill */
+        process.on('SIGTERM', () => console.log("KOKOT")); 
         connectToMongoDB().then(() => {
-            process.send({ type: 'worker-started' });
+            if (PlatformSolver.isCentralized()) {
+                process.send({ type: 'worker-started' });
+            }
             this.mongodb = getMongoDB();
             this.senderWorkerLoop();
         });
     }
 
+    /* Method called when Mailtrain is killed and we want to accomplish currently sending messages. */
+    async stopWorker() {
+        this.running = false;
+    }
+
     /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
     async senderWorkerLoop() {
+        console.log("WORKING")
         while (true) {
             try {
+                if (!this.running) {
+                    log.info('SenderWorker', `SenderWorker with ID: ${this.workerId} killed after successfully completed work!`);
+                    process.exit(0);
+                }
                 await this.checkCampaignMessages();
                 await this.checkQueuedMessages();
             } catch (error) {
@@ -189,7 +203,7 @@ const SenderWorkerState = {
                 if (error instanceof SendConfigurationError) {
                     log.error('SenderWorker',
                         `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. Will retry the message if within retention interval.`);
-                    await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { withErros: true });
+                    await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { withErrors: true });
                     break;
                 } else {
                     log.error('SenderWorker', `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}.`);
@@ -249,7 +263,7 @@ const SenderWorkerState = {
                 if (error instanceof SendConfigurationError) {
                     log.error('SenderWorker',
                         `Sending message to ${target} failed with error: ${error.message}. Will retry the message if within retention interval.`);
-                    await this.mongodb.collection('queued').updateOne({ _id: queuedMessage._id }, { withErros: true });
+                    await this.mongodb.collection('queued').updateOne({ _id: queuedMessage._id }, { withErrors: true });
                     break;
                 } else {
                     log.error('SenderWorker',

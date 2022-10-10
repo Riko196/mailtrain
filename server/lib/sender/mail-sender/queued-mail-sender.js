@@ -49,7 +49,6 @@ class QueuedMailSender extends MailSender {
             throw error;
         }
 
-        console.log('RESULT: ', result);
         await this.mongodb.collection('queued')
             .updateOne({
                 _id: queuedMessageId

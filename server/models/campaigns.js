@@ -887,7 +887,7 @@ async function prepareCampaignMessages(campaignId) {
                     campaign: campaign.id,
                     list: cpgList.list,
                     status: CampaignMessageStatus.SCHEDULED
-                }).offset(offset).limit(CHUNK_SIZE).map(message => {
+                }).orderBy('id', 'asc').offset(offset).limit(CHUNK_SIZE).map(message => {
                     message._id = message.id;
                     message.hashEmailPiece = hashToUint32(message.hash_email);
                     delete message.id;

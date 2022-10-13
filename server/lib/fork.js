@@ -2,18 +2,15 @@
 
 const builtinFork = require('child_process').fork;
 
-const cleanExit = () => process.exit();
-process.on('SIGINT', cleanExit); // catch ctrl-c
-process.on('SIGTERM', cleanExit); // catch kill
+/* If this is Mailtrain root process */
+if (process.title === 'node') {
+    /* Catch Ctrl+C */
+    process.on('SIGINT', () => {}); 
+    /* Catch kill process */
+    process.on('SIGTERM', () => {}); 
+}
 
 const children = [];
-
-process.on('message', msg => {
-    if (msg === 'exit') {
-        cleanExit();
-    }
-});
-
 
 process.on('exit', function() {
     for (const child of children) {

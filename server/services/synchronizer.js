@@ -12,6 +12,7 @@ const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const Scheduler = require('../lib/sender/synchronizer/scheduler');
 const contextHelpers = require('../lib/context-helpers');
 
+/** Chunk of entities which will be processed in one query. */
 const CHUNK_SIZE = 10000;
 
 /**
@@ -31,7 +32,8 @@ class Synchronizer {
         this.synchronizingQueuedMessages = new Map();
         this.notifier = new Notifier();
         this.dataCollector = new DataCollector();
-
+        /* Value which says whether worker should stop after accomplishing currently executing iteration */
+        this.stopWorking = false;
         /* Get MongoDB connection */
         this.mongodb = getMongoDB();
         this.scheduler = new Scheduler(
@@ -57,7 +59,7 @@ class Synchronizer {
     async synchronizerLoop() {
         log.verbose('Synchronizer', 'Starting loop...');
 
-        while (true) {
+        while (!this.stopWorking) {
             try {
                 /* Mailtrain --> MongoDB */
                 await this.synchronizePausingCampaigns();
@@ -78,6 +80,9 @@ class Synchronizer {
                 log.error(error.stack);
             }
         }
+
+        log.info('Synchronizer', `Synchronizer killed after successfully completed work!`);
+        process.exit(0);
     }
 
     /* Called by client when he does some campaign operations and we don't want to wait for the next periodic check. */
@@ -185,6 +190,8 @@ class Synchronizer {
                 log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
                 this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
                 await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
+                /* We rather call also this update campaign status although campaign is already set as FINISHED (there could appear some problem with delivered messages) */
+                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
             }
         }
     }
@@ -249,7 +256,7 @@ class Synchronizer {
 
             /* Find count of all messages from MySQL */
             const allMessages = await knex('campaign_messages').where({ campaign: campaignId }).count('* as count').first();
-            console.log('MESSAGES: ', allMessages.count);
+
             /* Update value of delivered messages */
             await knex('campaigns').where('id', campaignId).update({ delivered });
 
@@ -438,6 +445,11 @@ async function spawnSynchronizer() {
     await connectToMongoDB();
     const synchronizer = new Synchronizer();
 
+    /* Catch Ctrl+C */
+    process.on('SIGINT', () => {}); 
+    /* Catch kill process */
+    process.on('SIGTERM', () => {}); 
+
     process.on('message', msg => {
         if (msg) {
             const type = msg.type;
@@ -447,15 +459,18 @@ async function spawnSynchronizer() {
                 synchronizer.callImmediateScheduleCheck();
             }
         }
+
+        /* Catch kill message from Mailtrain root process */
+        if (msg === 'exit') {
+            synchronizer.stopWorking = true;
+        }
     });
 
     if (config.title) {
         process.title = config.title + ': synchronizer';
     }
 
-    process.send({
-        type: 'synchronizer-started'
-    });
+    process.send({ type: 'synchronizer-started' });
 }
 
 /* noinspection JSIgnoredPromiseFromCall */

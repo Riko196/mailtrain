@@ -21,10 +21,12 @@ const CHUNK_SIZE = 100;
 const WORKERS = PlatformSolver.getNumberOfWorkers();
 /** It defines range of e-mail hash values according to which the workers divide their messages for sending. */
 const MAX_RANGE = config.sender.maxRange;
+/** It defines period in which worker repeatedly writes to MongoDB collection that he is still alive. */
+const REPORT_PERIOD = 60 * 1000;
 
 /** It defines all possible states in which one worker can appear. */
 const SenderWorkerState = {
-    IDLE: 0,
+    SYNCHRONIZING: 0,
     SENDING: 1,
     DEAD: 2
 };
@@ -35,50 +37,45 @@ const SenderWorkerState = {
  class SenderWorker {
     constructor() {
         this.workerId = PlatformSolver.getWorkerId();
-        this.workerState = SenderWorkerState.IDLE;
+        this.workerState = SenderWorkerState.SYNCHRONIZING;
         this.rangeFrom = Math.floor(MAX_RANGE / WORKERS)  * this.workerId;
         this.rangeTo = Math.floor(MAX_RANGE / WORKERS)  * (this.workerId + 1);
-        /* Values which says whether worker is running (true) or it is just accomplishing unfinished work (false) and will be killed after iteration */
-        this.running = true;
-
+        /* Value which says whether worker should stop after accomplishing currently executing iteration */
+        this.stopWorking = false;
         /* If it is the last worker then assign MAX_RANGE */
         if (this.workerId === WORKERS - 1) {
             this.rangeTo = MAX_RANGE;
         }
 
-        /* Catch Ctrl-C */
-        process.on('SIGINT', () => console.log("KOKOT")); 
-        /* Catch kill */
-        process.on('SIGTERM', () => console.log("KOKOT")); 
-        connectToMongoDB().then(() => {
-            if (PlatformSolver.isCentralized()) {
-                process.send({ type: 'worker-started' });
-            }
-            this.mongodb = getMongoDB();
-            this.senderWorkerLoop();
-        });
+        this.mongodb = getMongoDB();
+        this.reportAliveState();
+        setImmediate(this.senderWorkerLoop.bind(this));
     }
 
-    /* Method called when Mailtrain is killed and we want to accomplish currently sending messages. */
-    async stopWorker() {
-        this.running = false;
+    /* Method which in specified period repeatedly writes to MongoDB collection that this worker is still alive. */
+    async reportAliveState() {
+        log.verbose('SenderWorker', `SenderWorker with ID: ${this.workerId} periodic report...`);
+        // this.scheduleCheck();
+        setTimeout(this.reportAliveState.bind(this), REPORT_PERIOD);
+    }
+
+    /* Method which in specified period repeatedly is called for synchronizing with other workers. */
+    async synchronizeWithWorkers() {
     }
 
     /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
     async senderWorkerLoop() {
-        console.log("WORKING")
-        while (true) {
+        while (!this.stopWorking) {
             try {
-                if (!this.running) {
-                    log.info('SenderWorker', `SenderWorker with ID: ${this.workerId} killed after successfully completed work!`);
-                    process.exit(0);
-                }
                 await this.checkCampaignMessages();
                 await this.checkQueuedMessages();
             } catch (error) {
                 log.error('SenderWorker', error);
             }
         }
+
+        log.info('SenderWorker', `SenderWorker with ID: ${this.workerId} killed after successfully completed work!`);
+        process.exit(0);
     }
 
     /* Get all subscribers from messages to speed up the whole sending. */
@@ -283,4 +280,31 @@ const SenderWorkerState = {
     }
 }
 
-new SenderWorker();
+/* The method which is called as first when the worker process is spawned by mailtrain. */
+async function spawnSenderWorker() {
+    /* Connect to the MongoDB and accomplish setup */
+    await connectToMongoDB();
+    const senderWorker = new SenderWorker();
+
+    /* Catch Ctrl+C */
+    process.on('SIGINT', () => {}); 
+    /* Catch kill process */
+    process.on('SIGTERM', () => {}); 
+    /* Catch kill message from Mailtrain root process */
+    process.on('message', msg => {
+        if (msg === 'exit') {
+            senderWorker.stopWorking = true;
+        }
+    });
+
+    if (config.title) {
+        process.title = config.title + ': sender-worker ' + senderWorker.workerId;
+    }
+
+    if (PlatformSolver.isCentralized()) {
+        process.send({ type: 'worker-started' });
+    }
+}
+
+/* noinspection JSIgnoredPromiseFromCall */
+spawnSenderWorker();

@@ -182,6 +182,11 @@ const CHUNK_SIZE = 100;
         // log.verbose(`SenderWorker:${this.workerId}`, `Received taskList: ${taskList}`);
 
         for (const task of taskList) {
+            /* Skip tasks with non-working send configuration */
+            if (task.withErrors) {
+                continue;
+            }
+            
             const campaignId = task.campaign.id;
             const chunkCampaignMessages = await this.mongodb.collection('campaign_messages').find({
                 campaign: campaignId,

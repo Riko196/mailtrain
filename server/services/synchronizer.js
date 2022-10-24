@@ -182,10 +182,19 @@ class Synchronizer {
         const sendingCampaigns = await this.mongodb.collection('tasks').find({}).limit(CHUNK_SIZE).toArray();
         for (const sendingCampaign of sendingCampaigns) {
             const campaignId = sendingCampaign.campaign.id;
+
+            /* Check whether no error occurred during sending campaign and if so then postpone sending this campaign */
+            if (sendingCampaign.withErrors) {
+                log.error('Synchronizer', `Error occurred during sending campaign with id: ${campaignId}, it is postponing!`);
+                this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
+                await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
+                continue;
+            }
+
+            /* If all campaign messages have been sent, then remove task and set campaign status FINISHED */
             const remainingCampaignMessages = await this.mongodb.collection('campaign_messages').countDocuments({
                 campaign: campaignId
             });
-
             if (!remainingCampaignMessages) {
                 log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
                 this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);

@@ -87,7 +87,7 @@ class Synchronizer {
 
     /* Called by client when he does some campaign operations and we don't want to wait for the next periodic check. */
     async callImmediateScheduleCheck() {
-        await this.scheduler.periodicCheck();
+        this.scheduler.periodicCheck();
     }
 
     selectPausingCampaign() {
@@ -463,6 +463,7 @@ async function spawnSynchronizer() {
         /* Catch kill message from Mailtrain root process */
         if (msg === 'exit') {
             synchronizer.stopWorking = true;
+            synchronizer.notifier.notify('taskAvailable');
         }
     });
 

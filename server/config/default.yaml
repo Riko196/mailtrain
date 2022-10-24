@@ -140,7 +140,7 @@ mysql:
 mongodb:
   uri: mongodb://localhost:27017
   # default collections for mongodb database which are created if not exist during mailtrain starting
-  collections: ['tasks', 'queued', 'campaign_messages', 'campaign_links', 'links', 'files_campaign_file']
+  collections: ['tasks', 'queued', 'campaign_messages', 'campaign_links', 'links', 'files_campaign_file', 'sender_workers']
 
 verp:
   # Enable to start an MX server that detects bounced messages using VERP
@@ -205,6 +205,8 @@ nodemailer:
 sender:
   # How many parallel sender processes to spawn
   workers: 2
+  # Defines whether the sender workers will synchronize with each other
+  workerSynchronization: false
   # Defines range <0, maxRange) according to which we distribute messages among workers
   maxRange: 4294967296
   # For how long (in seconds) to try to send an email before Mailtrain stops to trying. An email can normally

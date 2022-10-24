@@ -48,7 +48,7 @@ async function dropMailtrainMongoDB() {
     }
 }
 
-function getNewSession() {
+function getNewTransactionSession() {
     return mongoDBClient.startSession();
 }
 
@@ -58,6 +58,6 @@ function getMongoDB() {
 
 module.exports.transactionOptions = transactionOptions;
 module.exports.connectToMongoDB = connectToMongoDB;
-module.exports.getNewSession = getNewSession;
+module.exports.getNewTransactionSession = getNewTransactionSession;
 module.exports.dropMailtrainMongoDB = dropMailtrainMongoDB;
 module.exports.getMongoDB = getMongoDB;

@@ -9,7 +9,8 @@ module.exports = {
     castToInteger,
     normalizeEmail,
     hashEmail,
-    hashToUint32
+    hashToUint32,
+    sleep
 };
 
 function enforce(condition, message) {
@@ -74,4 +75,8 @@ function hashToUint32(hash) {
     }
 
     return result;
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }

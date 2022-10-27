@@ -45,14 +45,16 @@ class Synchronizer {
         setImmediate(this.synchronizerLoop.bind(this));
     }
 
-    /* Returns true if there is no available task. */
+    /** 
+     * Returns true if there is no available task.
+     */
     noTaskAvailable() {
         return !this.synchronizingPausingCampaigns.length &&
              !this.synchronizingScheduledCampaigns.length &&
              !this.synchronizingQueuedMessages.size;
     }
 
-    /*
+    /**
      * The main infinite loop where synchronizer always tries to synchronize things from Mailtrain to MongoDB
      * and then tries synchronize results from MongoDB backward to Mailtrain.
      */
@@ -85,15 +87,23 @@ class Synchronizer {
         process.exit(0);
     }
 
-    /* Called by client when he does some campaign operations and we don't want to wait for the next periodic check. */
+    /**
+     * Called by client when he does some campaign operations and we don't want to wait for the next periodic check.
+     */
     async callImmediateScheduleCheck() {
         this.scheduler.periodicCheck();
     }
 
+    /**
+     * Select first campaign from list of pausing campaigns.
+     */
     selectPausingCampaign() {
         return this.synchronizingPausingCampaigns.shift();
     }
 
+    /**
+     * Select first campaign from list of pausing campaigns and update campaign status to PAUSED.
+     */
     async synchronizePausingCampaigns() {
         const campaignId = this.selectPausingCampaign();
 
@@ -106,10 +116,16 @@ class Synchronizer {
         }
     }
 
+    /**
+     * Select first campaign from list of scheduled campaigns.
+     */
     selectScheduledCampaign() {
         return this.synchronizingScheduledCampaigns.shift();
     }
 
+    /**
+     * Select first campaign from list of scheduled campaigns, collect all needed data, send them to MongoDB, and update campaign status to SENDING.
+     */
     async synchronizeScheduledCampaigns() {
         const campaignId = this.selectScheduledCampaign();
 
@@ -127,6 +143,9 @@ class Synchronizer {
         }
     }
 
+    /**
+     * Select first CHUNK_SIZE of queued messages grouped by send configuration.
+     */
     selectScheduledQueuedMessages() {
         let scheduledQueuedMessages = [];
         for (const [key, value] of this.synchronizingQueuedMessages) {
@@ -142,6 +161,9 @@ class Synchronizer {
         return scheduledQueuedMessages;
     }
 
+    /**
+     * Select first CHUNK_SIZE of queued messages grouped by send configuration, collect all needed data, send them to MongoDB, and delete them from MySQL.
+     */
     async synchronizeScheduledQueuedMessages() {
         const scheduledQueuedMessages = this.selectScheduledQueuedMessages();
 
@@ -172,6 +194,9 @@ class Synchronizer {
         await knex('queued').whereIn('id', deletingIds).del();
     }
 
+    /**
+     * Synchronize all data from sending campaigns from MongoDB (it includes campaign links, events about clicked links, count of sent messages, sent messages).
+     */
     async synchronizeSendingCampaignsFromMongoDB() {
         await this.synchronizeLinksFromMongoDB();
         await this.synchronizeClickedLinksFromMongoDB();
@@ -205,7 +230,9 @@ class Synchronizer {
         }
     }
 
-    /* Synchronize all initialized links */
+    /** 
+     * Synchronize all initialized links.
+     */
     async synchronizeLinksFromMongoDB() {
         const unsynchronizedLinks = await this.mongodb.collection('links').find({
             status: links.LinkStatus.UNSYNCHRONIZED
@@ -224,7 +251,9 @@ class Synchronizer {
         }
     }
 
-    /* Synchronize all data when subscribers opened mail or clicked on some links */
+    /**
+     * Synchronize all data when subscribers opened mail or clicked on some links.
+     */
     async synchronizeClickedLinksFromMongoDB() {
         const clickedLinks = await this.mongodb.collection('campaign_links').find({}).limit(CHUNK_SIZE).toArray();
 
@@ -241,7 +270,9 @@ class Synchronizer {
         await this.mongodb.collection('campaign_links').deleteMany({ _id: { $in: deletingIds } });
     }
 
-    /* Synchronize count of currently sent campaign messages from MongoDB and MySQL */
+    /* 
+     * Synchronize count of currently sent campaign messages from MongoDB and MySQL.
+     */
     async synchronizeCountOfSentCampaignMessages() {
         const sendingCampaigns = await knex('campaigns').where({ status: CampaignStatus.SENDING });
 
@@ -276,13 +307,17 @@ class Synchronizer {
         }
     }
 
-    /* Synchronize all campaign messages from MongoDB and do the final processing (update campaign_messages table) */
+    /** 
+     * Synchronize all campaign messages from MongoDB and do the final processing (update campaign_messages table).
+     */
     async synchronizeCampaignMessagesFromMongoDB() {
         await this.synchronizeSentCampaignMessagesFromMongoDB();
         await this.synchronizeFailedCampaignMessagesFromMongoDB();
     }
 
-    /* Synchronize all sent campaign messages from MongoDB and do the final processing (update campaign_messages table) */
+    /**
+     *  Synchronize all sent campaign messages from MongoDB and do the final processing (update campaign_messages table).
+     */
     async synchronizeSentCampaignMessagesFromMongoDB() {
         const sentCampaignMessages = await this.mongodb.collection('campaign_messages').find({
             status: CampaignMessageStatus.SENT,
@@ -303,7 +338,9 @@ class Synchronizer {
         await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
     }
 
-    /* Synchronize all failed campaign messages from MongoDB and do the final processing (update campaign_messages table) */
+    /** 
+     * Synchronize all failed campaign messages from MongoDB and do the final processing (update campaign_messages table).
+     */
     async synchronizeFailedCampaignMessagesFromMongoDB() {
         const failedCampaignMessages = await this.mongodb.collection('campaign_messages').find({
             status: CampaignMessageStatus.FAILED
@@ -323,7 +360,9 @@ class Synchronizer {
         await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
     }
 
-    /* Synchronize all sent queued messages from MongoDB and do the final processing */
+    /**
+     * Synchronize all sent queued messages from MongoDB and do the final processing.
+     */
     async synchronizeSentQueuedMessagesFromMongoDB() {
         //log.verbose('Synchronizer', 'Synchronizing sent queued messages from MongoDB...');
         const queuedMessages = await this.mongodb.collection('queued').find({
@@ -374,9 +413,9 @@ class Synchronizer {
         }
     }
 
-   /*
+   /**
     * Insert an entry to test_messages. This allows us to remember test sends to lists that are not
-    * listed in the campaign - see the check in getMessage
+    * listed in the campaign - see the check in getMessage.
     */
     async processSentCampaignTestMessage(testMessage) {
         try {
@@ -393,7 +432,9 @@ class Synchronizer {
         }
     }
 
-    /* Unlock all attachments (at semaphore) used in sent queued message. */
+    /**
+     * Unlock all attachments (at semaphore) used in sent queued message.
+     */
     async unlockAttachments(attachments) {
         attachments.forEach(async (attachment) => {
             /* This means that it is an attachment recorded in table files_campaign_attachment */
@@ -448,7 +489,9 @@ class Notifier {
     }
 }
 
-/* The method which is called as first when the synchronizer process is spawned by mailtrain. */
+/**
+ * The method which is called as first when the synchronizer process is spawned by Mailtrain.
+ */
 async function spawnSynchronizer() {
     /* Connect to the MongoDB and accomplish setup */
     await connectToMongoDB();
@@ -483,5 +526,5 @@ async function spawnSynchronizer() {
     process.send({ type: 'synchronizer-started' });
 }
 
-/* noinspection JSIgnoredPromiseFromCall */
+/** noinspection JSIgnoredPromiseFromCall */
 spawnSynchronizer();

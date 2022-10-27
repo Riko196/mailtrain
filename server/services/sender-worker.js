@@ -38,7 +38,8 @@ const CHUNK_SIZE = 100;
         this.stopWorking = false;
         /* MongoDB session */
         this.mongodb = getMongoDB();
-        /* If worker synchronization is set, start an asynchronous callback that creates WorkerSynchronizer for this worker and takes care of worker synchronization */
+        /* If worker synchronization is set, start an asynchronous callback that creates WorkerSynchronizer
+         * for this worker and takes care of worker synchronization */
         if (PlatformSolver.workerSynchronizationIsSet()) {
             this.workerSynchronizer = new WorkerSynchronizer(senderWorkerInfo, this.ranges);
         }
@@ -63,7 +64,10 @@ const CHUNK_SIZE = 100;
         }
 
         /* Set yourself to WORKING state */
-        await this.mongodb.collection('sender_workers').updateOne({ _id: this.workerId }, { $set: { state: SenderWorkerState.WORKING } });
+        await this.mongodb.collection('sender_workers').updateOne(
+            { _id: this.workerId },
+            { $set: { state: SenderWorkerState.WORKING } }
+        );
         this.state.value = SenderWorkerState.WORKING;
 
     }
@@ -194,7 +198,8 @@ const CHUNK_SIZE = 100;
                 hashEmailPiece: { $gte: range.from, $lt: range.to }
             }).limit(CHUNK_SIZE).toArray();
 
-            log.verbose(`SenderWorker:${this.workerId}`, `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
+            log.verbose(`SenderWorker:${this.workerId}`,
+                `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
             if (chunkCampaignMessages.length) {
                 await this.processCampaignMessages(task, chunkCampaignMessages);
             }
@@ -220,12 +225,15 @@ const CHUNK_SIZE = 100;
                 const mail = await campaignMailMaker.makeMail(campaignMessage);
                 const campaignMessageType = campaignMessage.type ? campaignMessage.type : MessageType.REGULAR;
                 await campaignMailSender.sendMail(mail, campaignMessageType, campaignMessage._id);
-                await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT, campaignId, campaignMessage.list, campaignMessage.subscription);
-                log.verbose(`SenderWorker:${this.workerId}`, `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
+                await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT,
+                    campaignId, campaignMessage.list, campaignMessage.subscription);
+                log.verbose(`SenderWorker:${this.workerId}`,
+                    `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
             } catch (error) {
                 if (error instanceof SendConfigurationError) {
                     log.error(`SenderWorker:${this.workerId}`,
-                        `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. Will retry the message if within retention interval.`);
+                        `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. ` +
+                        'Will retry the message if within retention interval.');
                     await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { withErrors: true });
                     break;
                 } else {
@@ -286,7 +294,8 @@ const CHUNK_SIZE = 100;
             } catch (error) {
                 if (error instanceof SendConfigurationError) {
                     log.error(`SenderWorker:${this.workerId}`,
-                        `Sending message to ${target} failed with error: ${error.message}. Will retry the message if within retention interval.`);
+                        `Sending message to ${target} failed with error: ${error.message}. ` +
+                        'Will retry the message if within retention interval.');
                     await this.mongodb.collection('queued').updateOne({ _id: queuedMessage._id }, { withErrors: true });
                     break;
                 } else {

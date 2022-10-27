@@ -2,13 +2,11 @@
 
 const config = require('../../config');
 const campaigns = require('../../../models/campaigns');
-const blacklist = require('../../../models/blacklist');
 const sendConfigurations = require('../../../models/send-configurations');
 const lists = require('../../../models/lists');
 const fields = require('../../../models/fields');
 const files = require('../../../models/files');
 const templates = require('../../../models/templates');
-const subscriptions = require('../../../models/subscriptions');
 const settings = require('../../../models/settings');
 const contextHelpers = require('../../context-helpers');
 const knex = require('../../knex');
@@ -50,10 +48,10 @@ class DataCollector {
                 enforce(false);
             }
 
-            await this.collectAttachments(tx, query);
-            await this.collectTemplates(tx, query);
+            await this.collectEmailAttachments(tx, query);
+            await this.collectEmailTemplate(tx, query);
         });
-        await this.collectSettings(query);
+        await this.collectSetting(query);
 
         /* Only for queued messages */
         if (this.isQueuedMessage(type)) {
@@ -135,7 +133,7 @@ class DataCollector {
         this.data.listsFieldsGrouped = listsFieldsGrouped;
     }
 
-    async collectAttachments(tx, query) {
+    async collectEmailAttachments(tx, query) {
         if (query.attachments) {
             this.data.attachments = query.attachments;
         } else if (this.data.campaign && this.data.campaign.id) {
@@ -156,7 +154,7 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected attachments data: ${JSON.stringify(this.data.attachments, null, ' ')}`);
     }
 
-    async collectTemplates(tx, query) {
+    async collectEmailTemplate(tx, query) {
         if (query.renderedHtml !== undefined) {
             this.data.renderedHtml = query.renderedHtml;
             this.data.renderedText = query.renderedText;
@@ -184,7 +182,7 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected template data: ${JSON.stringify(this.data.template, null, ' ')}`);
     }
 
-    async collectSettings(query) {
+    async collectSetting(query) {
         if (query.rssEntry !== undefined) {
             this.data.rssEntry = query.rssEntry;
         } else if (this.data.campaign && this.data.campaign.data.rssEntry) {

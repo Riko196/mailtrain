@@ -83,7 +83,7 @@ class Scheduler {
                     .del();
 
                 if (expiredCount) {
-                    log.warn('Sender', `Discarded ${expiredCount} expired ${expirationThreshold.title} message(s).`);
+                    log.warn('Scheduler', `Discarded ${expiredCount} expired ${expirationThreshold.title} message(s).`);
                 }
             }
 
@@ -96,12 +96,12 @@ class Scheduler {
             for (const row of rows) {
                 const sendConfigurationId = row.send_configuration;
                 this.sendConfigurationMessageQueue.set(sendConfigurationId, []);
-                // noinspection JSIgnoredPromiseFromCall
+                /* noinspection JSIgnoredPromiseFromCall */
                 this.prepareQueuedBySendConfiguration(sendConfigurationId);
             }
-        } catch (err) {
-            log.error('Sender', `Scheduling queued messages failed with error: ${err.message}`);
-            log.verbose(err.stack);
+        } catch (error) {
+            log.error('Scheduler', `Scheduling queued messages failed with error: ${error.message}`);
+            log.verbose(error.stack);
         }
 
         this.queuedSchedulerRunning = false;
@@ -121,7 +121,7 @@ class Scheduler {
             }
 
             if (deleteMsgQueue) {
-                sendConfigurationMessageQueue.delete(sendConfigurationId);
+                this.sendConfigurationMessageQueue.delete(sendConfigurationId);
             }
         }
 
@@ -145,7 +145,7 @@ class Scheduler {
                         return await finish(false, true);
                     } else {
                         await finish(false, false);
-                        // At this point, there might be new messages in the queued that could belong to us. Thus we have to try again instead for returning.
+                        /* At this point, there might be new messages in the queued that could belong to us. Thus we have to try again instead for returning. */
                         continue;
                     }
                 }
@@ -171,16 +171,16 @@ class Scheduler {
                 for (const type in expirationThresholds) {
                     const expirationThreshold = expirationThresholds[type];
                     if (expirationCounters[type] > 0) {
-                        log.warn('Sender', `Discarded ${expirationCounters[type]} expired ${expirationThreshold.title} message(s).`);
+                        log.warn('Scheduler', `Discarded ${expirationCounters[type]} expired ${expirationThreshold.title} message(s).`);
                     }
                 }
 
                 this.notifier.notify('taskAvailable');
                 return;
             }
-        } catch (err) {
-            log.error('Sender', `Sending queued messages for send configuration ${sendConfigurationId} failed with error: ${err.message}`);
-            log.verbose(err.stack);
+        } catch (error) {
+            log.error('Scheduler', `Sending queued messages for send configuration ${sendConfigurationId} failed with error: ${error.message}`);
+            log.verbose(error.stack);
         }
     }
 
@@ -253,9 +253,9 @@ class Scheduler {
                     break;
                 }
             }
-        } catch (err) {
-            log.error('Sender', `Scheduling campaigns failed with error: ${err.message}`);
-            log.verbose(err.stack);
+        } catch (error) {
+            log.error('Scheduler', `Scheduling campaigns failed with error: ${error.message}`);
+            log.verbose(error.stack);
         }
 
         this.campaignSchedulerRunning = false;
@@ -310,7 +310,7 @@ class Scheduler {
 
                 if (!preparedCampaignMessage) {
                     if (isCompleted()) {
-                        return await finish(false, CampaignStatus.FINISHED);
+                        return await finish(CampaignStatus.FINISHED);
                     } else {
                         /* TODO Maybe some additional synchronize operation */
                         /* At this point, there might be messages that re-appeared because sending failed. */
@@ -323,9 +323,9 @@ class Scheduler {
                 this.notifier.notify('taskAvailable');
                 return;
             }
-        } catch (err) {
-            log.error('Sender', `Scheduling campaign ${campaignId} failed with error: ${err.message}`);
-            log.verbose(err.stack);
+        } catch (error) {
+            log.error('Scheduler', `Scheduling campaign ${campaignId} failed with error: ${error.message}`);
+            log.verbose(error.stack);
         }
     }
 
@@ -395,7 +395,7 @@ class Scheduler {
         }
     }
 
-    /* Get all expiration thresholds for all kind of messages which are defined in the main config file. */
+    /* Get all expiration thresholds for all kind of queued messages which are defined in the main config file. */
     getExpirationThresholds() {
         const now = Date.now();
 

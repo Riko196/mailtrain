@@ -27,8 +27,6 @@ class Scheduler {
         this.sendConfigurationStatuses = new Map();
         /* Values in seconds which point to the next postpone time when messages fail */
         this.retryBackoff = [10, 20, 30, 30, 60, 60, 120, 120, 300];
-        /* campaignId -> sendConfigurationId */
-        this.sendConfigurationIdByCampaignId = new Map();
         /* Mutexes */
         this.queuedSchedulerRunning = false;
         this.campaignSchedulerRunning = false;
@@ -47,7 +45,9 @@ class Scheduler {
         setTimeout(this.periodicCheck.bind(this), CHECK_PERIOD);
     }
 
-    /* One checking round of the Scheduler. */
+    /**
+     *  One checking round of the Scheduler.
+     */
     scheduleCheck() {
         /* This task means synchronizing new data from MongoDB */
         this.notifier.notify('taskAvailable');
@@ -59,7 +59,9 @@ class Scheduler {
         this.scheduleQueued();
     }
 
-    /* Schedule queued messages which meet the conditions. */
+    /**
+     * Schedule queued messages which meet the conditions.
+     */
     async scheduleQueued() {
         if (this.queuedSchedulerRunning) {
             return;
@@ -87,18 +89,18 @@ class Scheduler {
                 }
             }
 
-            /* Select queued messages which are not processing right now by Synchronizer */
+            /* Select queued messages which are not postponed and processing right now by Synchronizer */
             const rows = await knex('queued')
                 .whereNotIn('send_configuration', [...sendConfigurationsIdsInProcessing, ...postponedSendConfigurationIds])
                 .groupBy('send_configuration')
                 .select(['send_configuration']);
 
-            for (const row of rows) {
+            rows.forEach(row => {
                 const sendConfigurationId = row.send_configuration;
                 this.sendConfigurationMessageQueue.set(sendConfigurationId, []);
                 /* noinspection JSIgnoredPromiseFromCall */
                 this.prepareQueuedBySendConfiguration(sendConfigurationId);
-            }
+            }, this);
         } catch (error) {
             log.error('Scheduler', `Scheduling queued messages failed with error: ${error.message}`);
             log.verbose(error.stack);
@@ -107,84 +109,42 @@ class Scheduler {
         this.queuedSchedulerRunning = false;
     }
 
-    /* Prepare potentially scheduled queued messages for Synchronizer. */
+    /**
+     * Prepare scheduled queued messages for Synchronizer.
+     */
     async prepareQueuedBySendConfiguration(sendConfigurationId) {
         const msgQueue = this.sendConfigurationMessageQueue.get(sendConfigurationId);
 
-        function isCompleted() {
-            return msgQueue.length > 0;
-        }
+        try {
+            const messageIdsInProcessing = [...msgQueue].map(x => x.id);
 
-        async function finish(clearMsgQueue, deleteMsgQueue) {
-            if (clearMsgQueue) {
+            /* This orders messages in the following order MessageType.SUBSCRIPTION, MessageType.TEST, MessageType.API_TRANSACTIONAL and MessageType.TRIGGERED */
+            const rows = await knex('queued')
+                .orderByRaw(`FIELD(type, ${MessageType.TRIGGERED}, ${MessageType.API_TRANSACTIONAL}, ${MessageType.TEST}, ${MessageType.SUBSCRIPTION}) DESC, id ASC`)
+                .where('send_configuration', sendConfigurationId)
+                .whereNotIn('id', messageIdsInProcessing)
+                .limit(CHUNK_SIZE);
+
+            if (!rows.length) {
                 msgQueue.splice(0);
-            }
-
-            if (deleteMsgQueue) {
                 this.sendConfigurationMessageQueue.delete(sendConfigurationId);
             }
-        }
 
-        try {
-            while (true) {
-                if (this.isSendConfigurationPostponed(sendConfigurationId)) {
-                    return await finish(true, true);
-                }
+            rows.forEach(row => {
+                row.data = JSON.parse(row.data);
+                msgQueue.push(row);
+            }, this);
 
-                const messageIdsInProcessing = [...msgQueue].map(x => x.id);
-
-                /* This orders messages in the following order MessageType.SUBSCRIPTION, MessageType.TEST, MessageType.API_TRANSACTIONAL and MessageType.TRIGGERED */
-                const rows = await knex('queued')
-                    .orderByRaw(`FIELD(type, ${MessageType.TRIGGERED}, ${MessageType.API_TRANSACTIONAL}, ${MessageType.TEST}, ${MessageType.SUBSCRIPTION}) DESC, id ASC`)
-                    .where('send_configuration', sendConfigurationId)
-                    .whereNotIn('id', messageIdsInProcessing)
-                    .limit(CHUNK_SIZE);
-
-                if (rows.length === 0) {
-                    if (isCompleted()) {
-                        return await finish(false, true);
-                    } else {
-                        await finish(false, false);
-                        /* At this point, there might be new messages in the queued that could belong to us. Thus we have to try again instead for returning. */
-                        continue;
-                    }
-                }
-
-                const expirationThresholds = this.getExpirationThresholds();
-                const expirationCounters = {};
-                for (const type in expirationThresholds) {
-                    expirationCounters[type] = 0;
-                }
-
-                for (const row of rows) {
-                    const expirationThreshold = expirationThresholds[row.type];
-
-                    if (row.created < expirationThreshold.threshold) {
-                        expirationCounters[row.type] += 1;
-                        await knex('queued').where('id', row.id).del();
-                    } else {
-                        row.data = JSON.parse(row.data);
-                        msgQueue.push(row);
-                    }
-                }
-
-                for (const type in expirationThresholds) {
-                    const expirationThreshold = expirationThresholds[type];
-                    if (expirationCounters[type] > 0) {
-                        log.warn('Scheduler', `Discarded ${expirationCounters[type]} expired ${expirationThreshold.title} message(s).`);
-                    }
-                }
-
-                this.notifier.notify('taskAvailable');
-                return;
-            }
+            this.notifier.notify('taskAvailable');
         } catch (error) {
-            log.error('Scheduler', `Sending queued messages for send configuration ${sendConfigurationId} failed with error: ${error.message}`);
+            log.error('Scheduler', `Preparing queued messages for send configuration ${sendConfigurationId} failed with error: ${error.message}`);
             log.verbose(error.stack);
         }
     }
 
-    /* Schedule campaigns which meet the conditions. */
+    /**
+     * Schedule campaigns which meet the conditions.
+     */
     async scheduleCampaigns() {
         if (this.campaignSchedulerRunning) {
             return;
@@ -210,17 +170,17 @@ class Scheduler {
                 .select(['id'])
                 .forUpdate();
 
-            for (const pausingCampaign of pausingCampaigns) {
+            pausingCampaigns.forEach(pausingCampaign => {
                 const campaignId = pausingCampaign.id;
                 this.synchronizingPausingCampaigns.push(campaignId);
-            }
+            }, this);
 
             if (pausingCampaigns.length != 0) {
                 this.notifier.notify('taskAvailable');
             }
 
-            while (true) {
-                let campaignId = 0;
+            let campaignId = 0;
+            do {
                 const postponedSendConfigurationIds = this.getPostponedSendConfigurationIds();
 
                 await knex.transaction(async tx => {
@@ -243,16 +203,16 @@ class Scheduler {
                             scheduledCampaign.id,
                             { status: CampaignStatus.SYNCHRONIZING });
                         campaignId = scheduledCampaign.id;
+                    } else {
+                        campaignId = 0;
                     }
                 });
 
                 if (campaignId) {
                     /* noinspection JSIgnoredPromiseFromCall */
-                    this.prepareCampaign(campaignId);
-                } else {
-                    break;
-                }
-            }
+                    await this.prepareCampaign(campaignId);
+                } 
+            } while (campaignId); 
         } catch (error) {
             log.error('Scheduler', `Scheduling campaigns failed with error: ${error.message}`);
             log.verbose(error.stack);
@@ -261,82 +221,45 @@ class Scheduler {
         this.campaignSchedulerRunning = false;
     }
 
-    /* Prepare potentially scheduled campaigns for Synchronizer. */
+    /**
+     * Prepare scheduled campaigns for Synchronizer.
+     */
     async prepareCampaign(campaignId) {
-        let preparedCampaignMessages = [];
-
-        function isCompleted()  {
-            /* TODO add condition whether all messages have been sent */
-            if (preparedCampaignMessages.length > 0)
-                return false;
-            else
-                return true;
-        }
-
-        async function finish(newStatus) {
-            if (newStatus) {
-                await knex('campaigns').where('id', campaignId).update({ status: newStatus });
-                await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, { status: newStatus });
-            }
-        }
-
         try {
             await campaigns.prepareCampaignMessages(campaignId);
 
-            while (true) {
-                const campaign = await knex('campaigns').where('id', campaignId).first();
+            const preparedCampaignMessage = await knex('campaign_messages')
+                .where({
+                    status: CampaignMessageStatus.SCHEDULED,
+                    campaign: campaignId
+                }).first();
 
-                if (campaign.status === CampaignStatus.PAUSING) {
-                    return await finish(CampaignStatus.PAUSED);
-                }
-
-                const expirationThreshold = Date.now() - config.sender.retention.campaign * 1000;
-                if (campaign.start_at && campaign.start_at.valueOf() < expirationThreshold) {
-                    return await finish(CampaignStatus.FINISHED);
-                }
-
-                this.sendConfigurationIdByCampaignId.set(campaign.id, campaign.send_configuration);
-
-                if (this.isSendConfigurationPostponed(campaign.send_configuration)) {
-                    /* Postpone campaign if its send configuration is problematic */
-                    return await finish(CampaignStatus.SCHEDULED);
-                }
-
-                const preparedCampaignMessage = await knex('campaign_messages')
-                    .where({
-                        status: CampaignMessageStatus.SCHEDULED,
-                        campaign: campaignId
-                    }).first();
-
-                if (!preparedCampaignMessage) {
-                    if (isCompleted()) {
-                        return await finish(CampaignStatus.FINISHED);
-                    } else {
-                        /* TODO Maybe some additional synchronize operation */
-                        /* At this point, there might be messages that re-appeared because sending failed. */
-                        continue;
-                    }
-                }
-
-                this.synchronizingScheduledCampaigns.push(campaignId);
-                log.verbose('Scheduler', `Notifying synchronizer about campaignId: ${campaignId}`);
-                this.notifier.notify('taskAvailable');
-                return;
+            if (!preparedCampaignMessage) {
+                await knex('campaigns').where('id', campaignId).update({ status: newStatus });
+                await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, { status: newStatus });
             }
+
+            this.synchronizingScheduledCampaigns.push(campaignId);
+            log.verbose('Scheduler', `Notifying synchronizer about campaignId: ${campaignId}`);
+            this.notifier.notify('taskAvailable');
         } catch (error) {
             log.error('Scheduler', `Scheduling campaign ${campaignId} failed with error: ${error.message}`);
             log.verbose(error.stack);
         }
     }
 
-    /* Get information whether sendConfiguration should be scheduled now or postponed to the future. */
+    /**
+     * Get information whether sendConfiguration should be scheduled now or postponed to the future.
+     */
     isSendConfigurationPostponed(sendConfigurationId) {
         const now = Date.now();
         const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
         return sendConfigurationStatus.postponeTill > now;
     }
 
-    /* Get sendConfiguration status. */
+    /**
+     * Get sendConfiguration status.
+     */
     getSendConfigurationStatus(sendConfigurationId) {
         let status = this.sendConfigurationStatuses.get(sendConfigurationId);
         if (!status) {
@@ -351,7 +274,9 @@ class Scheduler {
         return status;
     }
 
-    /* Get all postponed sendConfiguration Ids. */
+    /**
+     * Get all postponed sendConfiguration Ids.
+     */
     getPostponedSendConfigurationIds() {
         const result = [];
         const now = Date.now();
@@ -365,7 +290,9 @@ class Scheduler {
         return result;
     }
 
-    /* Set new retry count for processed messages */
+    /**
+     * Set new retry count for processed messages.
+     */
     setSendConfigurationRetryCount(sendConfigurationStatus, newRetryCount) {
         sendConfigurationStatus.retryCount = newRetryCount;
 
@@ -385,7 +312,9 @@ class Scheduler {
         sendConfigurationStatus.postponeTill = next;
     }
 
-    /* Method called by Synchronizer when some new chunk of queued messages or campaigns are processed (SENT or FAILED) */
+    /**
+     * Method called by Synchronizer when some new chunk of queued messages or campaigns are processed (SENT or FAILED).
+     */
     checkSentErrors(sendConfigurationId, withErrors) {
         const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
         if (withErrors) {
@@ -395,7 +324,9 @@ class Scheduler {
         }
     }
 
-    /* Get all expiration thresholds for all kind of queued messages which are defined in the main config file. */
+    /**
+     * Get all expiration thresholds for all kind of queued messages which are defined in the main config file.
+     */
     getExpirationThresholds() {
         const now = Date.now();
 

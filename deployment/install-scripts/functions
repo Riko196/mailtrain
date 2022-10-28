@@ -254,7 +254,6 @@ www:
   sandboxUrlBase: $urlBaseSandbox
   publicUrlBase: $urlBasePublic
 
-
 mysql:
   password: "$mysqlPassword"
 
@@ -272,7 +271,7 @@ sender:
   workers: 5
 EOT
 
-    cat >> server/services/workers/reports/config/production.yaml <<EOT
+    cat >> server/lib/report-processor/reports/config/production.yaml <<EOT
 log:
   level: warn
 
@@ -585,7 +584,7 @@ testServer:
   enabled: true
 EOT
 
-    cat >> server/services/workers/reports/config/test.yaml <<EOT
+    cat >> server/lib/report-processor/reports/config/test.yaml <<EOT
 log:
   level: warn
 

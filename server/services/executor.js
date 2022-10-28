@@ -112,7 +112,16 @@ process.on('message', msg => {
         if (type === 'start-report-processor-worker') {
 
             const ids = privilegeHelpers.getConfigROUidGid();
-            spawnProcess(msg.tid, path.join(__dirname, 'workers', 'reports', 'report-processor.js'), [msg.data.id], reportHelpers.getReportContentFile(msg.data), reportHelpers.getReportOutputFile(msg.data), path.join(__dirname, 'workers', 'reports'), ids.uid, ids.gid);
+            spawnProcess(
+                msg.tid,
+                path.join(__dirname, '..', 'lib', 'report-processor', 'reports', 'worker.js'),
+                [msg.data.id],
+                reportHelpers.getReportContentFile(msg.data),
+                reportHelpers.getReportOutputFile(msg.data),
+                path.join(__dirname, '..', 'lib', 'report-processor', 'reports'),
+                ids.uid,
+                ids.gid
+            );
 
         } else if (type === 'stop-process') {
             const child = processes[msg.tid];

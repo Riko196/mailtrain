@@ -2,7 +2,7 @@
 
 const passport = require('../../lib/passport');
 const reports = require('../../models/reports');
-const reportProcessor = require('../../lib/report-processor');
+const reportProcessor = require('../../lib/report-processor/report-processor');
 const reportHelpers = require('../../lib/report-helpers');
 const shares = require('../../models/shares');
 const contextHelpers = require('../../lib/context-helpers');

@@ -207,6 +207,50 @@ class WorkerSynchronizer {
             await this.mongodb.collection('sender_workers').updateMany({ _id: { $in: releasingWorkerIds } }, { substitute: null }, { transactionSession });
         }, transactionOptions);
     }
+
+    /** 
+     * Check whether there is a potential deadlock and solve it if so.
+     */
+    async solvePotentialDeadlock() {
+        let aliveWorkers = [];
+        const transactionSession = getNewTransactionSession();
+        try {
+            await transactionSession.withTransaction(async () => {
+                aliveWorkers = await getMongoDB().collection('sender_workers').aggregate([
+                    { $addFields: { reportDifference: { $subtract: [new Date(), '$lastReport'] } } },
+                    { $match: { _id: { $ne: workerId }, state: SenderWorkerState.WORKING, reportDifference: { $lt: SYNCHRONIZING_ROUND * PERIOD } } }
+                ], { transactionSession }).toArray();
+        
+                if (!aliveWorkers.length) {
+                    /* Set all WORKING workers to DEAD state */
+                    await getMongoDB().collection('sender_workers').updateMany(
+                        { state: SenderWorkerState.WORKING },
+                        { state: SenderWorkerState.DEAD },
+                        { transactionSession }
+                    );
+                    
+                    /* Remove all substitutions */
+                    await getMongoDB().collection('sender_workers').updateMany(
+                        { substitute: { $ne: null } },
+                        { substitute: null },
+                        { transactionSession }
+                    );
+                    
+                    /* Set yourself to WORKING state */
+                    await getMongoDB().collection('sender_workers').updateOne(
+                        { _id: workerId },
+                        { state: SenderWorkerState.WORKING, lastReport: new Date(), substitute: null },
+                        { transactionSession }
+                    );
+                    log.error(`SenderWorker:${this.workerId}`, `Deadlock detected! Solving problem...`);
+                }
+            }, transactionOptions);
+        } catch(error) {
+            log.error(`SenderWorker:${this.workerId}`, `Unexpected error detected during resolvin deadlock ${error}`);
+        } finally {
+            await transactionSession.endSession();
+        }
+    } 
 }
 
 module.exports = WorkerSynchronizer;

@@ -1,7 +1,7 @@
 'use strict';
 
-const config = require('../config');
-const { enforce } = require("../helpers");
+const config = require('../../config');
+const { enforce } = require("../../helpers");
 
 /** It defines all supported platforms under which worker is running. */
 const PlatformType = {

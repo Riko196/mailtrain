@@ -10,7 +10,7 @@ const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker'
 const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-sender');
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
-const PlatformSolver = require('../lib/sender/platform-solver');
+const PlatformSolver = require('../lib/sender/sender-worker/platform-solver');
 const { SenderWorkerState, senderWorkerInit, senderWorkerSynchronizedInit } = require('../lib/sender/sender-worker/init');
 const WorkerSynchronizer = require('../lib/sender/sender-worker/worker-synchronizer');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
@@ -312,10 +312,14 @@ const CHUNK_SIZE = 100;
 async function spawnSenderWorker() {
     /* Connect to the MongoDB and accomplish setup */
     await connectToMongoDB();
+    /* Get number of all workers (it is taken from different variable according to running platform) */
+    const maxWorkers = PlatformSolver.getNumberOfWorkers();
+    /* Get worker ID */
+    const workerId = PlatformSolver.getWorkerId();
     /* Init SenderWorker and get all info about him */
     const senderWorkerInfo = PlatformSolver.workerSynchronizationIsSet()
-        ? await senderWorkerSynchronizedInit()
-        : senderWorkerInit();
+        ? await senderWorkerSynchronizedInit(workerId, maxWorkers)
+        : senderWorkerInit(workerId, maxWorkers);
     /* Create instance and start working */
     const senderWorker = new SenderWorker(senderWorkerInfo);
 

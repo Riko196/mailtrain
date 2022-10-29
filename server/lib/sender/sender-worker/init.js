@@ -1,12 +1,8 @@
 'use strict';
 
 const config = require('../../config');
-const log = require('../../log');
-const { getMongoDB, getNewTransactionSession, transactionOptions } = require('../../mongodb');
-const PlatformSolver = require('../platform-solver');
+const { getMongoDB } = require('../../mongodb');
 
-/** Get number of all workers (it is taken from different variable according to running platform) */
-const MAX_WORKERS = PlatformSolver.getNumberOfWorkers();
 /** It defines range of e-mail hash values according to which the workers divide their messages for sending. */
 const MAX_RANGE = config.sender.maxRange;
 
@@ -17,50 +13,61 @@ const SenderWorkerState = {
     DEAD: 2
 };
 
-async function senderWorkerInit() {
-    /* Computing WorkerID and defined hash range of his campaign_messages */
-    const workerId = PlatformSolver.getWorkerId();
+/**
+ * Reset sender_workers collection.
+ */
+ async function resetSenderWorkersCollection() {
+    await getMongoDB().collection('sender_workers').deleteMany({});
 
-    /* Check whether this sender worker already exists in the collection */
-    const existingSenderWorker = await getMongoDB().collection('sender_workers').findOne({ _id: workerId });
-    if (existingSenderWorker) {
-        /* Setup SYNCHRONIZING state and report first alive state */
-        const transactionSession = getNewTransactionSession();
-        await transactionSession.withTransaction(async () => {
-            const updateResult = await getMongoDB().collection('sender_workers').updateOne({ _id: workerId },
-                    { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING  } }, { transactionSession });
-
-            if (updateResult.modifiedCount) {
-                log.info(`SenderWorker:${workerId}`, `Worker successfully set to SYNCHRONIZING state!`);
-            } else {
-                log.error(`SenderWorker:${workerId}`, `Worker failed set to SYNCHRONIZING state!`);
-            }
-        }, transactionOptions);
-        await transactionSession.endSession();
-        return { ...existingSenderWorker, maxWorkers: MAX_WORKERS };
+    for (let id = 0; id < config.sender.workers; id++) {
+        await getMongoDB().collection('sender_workers').insertOne(computeSenderWorkerInit(id, SenderWorkerState.SYNCHRONIZING));
     }
+};
+
+/**
+ * Compute SenderWorker init values.
+ */
+function computeSenderWorkerInit(workerId, initState, maxWorkers) {
     /* Computing hash range of his campaign_messages for which he is responsible to send */
     const range = {
-        from: Math.floor(MAX_RANGE / MAX_WORKERS)  * workerId,
-        to: Math.floor(MAX_RANGE / MAX_WORKERS)  * (workerId + 1)
+        from: Math.floor(MAX_RANGE / maxWorkers)  * workerId,
+        to: Math.floor(MAX_RANGE / maxWorkers)  * (workerId + 1)
     }
     /* If it is the last worker then assign MAX_RANGE */
-    if (workerId === MAX_WORKERS - 1) {
+    if (workerId === maxWorkers - 1) {
         range.to = MAX_RANGE;
     }
 
-    const senderWorkerInitState = {
+    return {
         _id: workerId,
-        state: SenderWorkerState.SYNCHRONIZING,
+        state: initState,
         range,
         lastReport: new Date(),
         substitute: null
     };
+}
 
-    /* Insert SenderWorker with init state */
-    await getMongoDB().collection('sender_workers').insertOne(senderWorkerInitState);
-    return { ...senderWorkerInitState, maxWorkers: MAX_WORKERS };
+/**
+ * Get init SenderWorker if synchronized is set.
+ */
+async function senderWorkerSynchronizedInit(workerId, maxWorkers) {
+    /* Setup SYNCHRONIZING state and report first alive state */
+    await getMongoDB().collection('sender_workers').updateOne({ _id: workerId },
+                { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING  } });
+
+    const existingSenderWorker = await getMongoDB().collection('sender_workers').findOne({ _id: workerId });
+    return { ...existingSenderWorker, maxWorkers };
 };
 
+/**
+ * Get init SenderWorker if synchronized is not set.
+ */
+function senderWorkerInit(workerId, maxWorkers) {
+    const init = computeSenderWorkerInit(workerId, SenderWorkerState.WORKING);
+    return { ...init, maxWorkers };
+}
+
 module.exports.SenderWorkerState = SenderWorkerState;
+module.exports.resetSenderWorkersCollection = resetSenderWorkersCollection;
+module.exports.senderWorkerSynchronizedInit = senderWorkerSynchronizedInit;
 module.exports.senderWorkerInit = senderWorkerInit;

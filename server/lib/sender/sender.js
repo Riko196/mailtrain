@@ -5,9 +5,11 @@ const bluebird = require('bluebird');
 const config = require('../config');
 const fork = require('../fork').fork;
 const knex = require('../knex');
+const { getMongoDB } = require('../mongodb');
 const log = require('../log');
 const builtinZoneMta = require('../builtin-zone-mta');
 const { CampaignStatus } = require('../../../shared/campaigns');
+const { resetSenderWorkersCollection } = require('./sender-worker/init');
 
 let messageTid = 0;
 let synchronizerProcess;
@@ -90,6 +92,8 @@ async function spawn(callback) {
     if (config.mode === 'centralized') {
         const spawnWorkerFutures = [];
 
+        /* Reset sender_workers collection before spawning (it has impact iff synchronized is set, otherwise it is redundant call) */
+        await resetSenderWorkersCollection();
         for (let workerId = 0; workerId < config.sender.workers; workerId++) {
             spawnWorkerFutures.push(spawnWorker(workerId));
         }

@@ -141,12 +141,12 @@ class DataCollector {
                 this.data.campaign.id);
 
             this.data.attachments = [];
-            for (const attachment of attachments) {
+            attachments.forEach(attachment => {
                 this.data.attachments.push({
                     filename: attachment.originalname,
                     path: files.getFilePath('campaign', 'attachment', this.data.campaign.id, attachment.filename)
                 });
-            }
+            }, this);
         } else {
             this.data.attachments = [];
         }

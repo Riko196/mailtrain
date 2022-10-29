@@ -26,6 +26,7 @@ const contextHelpers = require('../lib/context-helpers');
 const { convertFileURLs } = require('../lib/campaign-content');
 const queued = require('./queued');
 const lists = require('./lists');
+const { BLACKLISTED_RESPONSE } = require('./blacklist');
 
 const { EntityActivityType, CampaignActivityType } = require('../../shared/activity-log');
 const activityLog = require('../lib/activity-log');
@@ -910,6 +911,37 @@ async function prepareCampaignMessages(campaignId) {
     }
 }
 
+async function getSuccessfullySentCampaignMessagesCount(campaignId) {
+    return await knex('campaign_messages').where({ 
+        campaign: campaignId,
+        status: CampaignMessageStatus.SENT
+    }).whereNot({ response: BLACKLISTED_RESPONSE.response }).count('* as count').first();
+}
+
+async function getBlacklistedCampaignMessagesCount(campaignId) {
+    return await knex('campaign_messages').where({ 
+        campaign: campaignId,
+        status: CampaignMessageStatus.SENT,
+        response: BLACKLISTED_RESPONSE.response
+    }).count('* as count').first();
+}
+
+async function getSuccessfullySentCampaignMessagesCountMongoDB(campaignId) {
+    return await getMongoDB().collection('campaign_messages').countDocuments({
+        campaign: campaignId,
+        status: CampaignMessageStatus.SENT,
+        response: { $nin: [null, BLACKLISTED_RESPONSE.response] }
+    });
+}
+
+async function getBlacklistedCampaignMessagesCountMongoDB(campaignId) {
+    return await getMongoDB().collection('campaign_messages').countDocuments({
+        campaign: campaignId,
+        status: CampaignMessageStatus.SENT,
+        response: BLACKLISTED_RESPONSE.response
+    });
+}
+
 async function _changeStatus(context, campaignId, permittedCurrentStates, newState, invalidStateMessage, extraData) {
     await knex.transaction(async tx => {
         // This is quite inefficient because it selects the same row 3 times. However as status is changed
@@ -1205,6 +1237,10 @@ module.exports.updateCampaignStatus = updateCampaignStatus;
 module.exports.updateMessageResponse = updateMessageResponse;
 
 module.exports.prepareCampaignMessages = prepareCampaignMessages;
+module.exports.getSuccessfullySentCampaignMessagesCount = getSuccessfullySentCampaignMessagesCount;
+module.exports.getBlacklistedCampaignMessagesCount = getBlacklistedCampaignMessagesCount;
+module.exports.getSuccessfullySentCampaignMessagesCountMongoDB = getSuccessfullySentCampaignMessagesCountMongoDB;
+module.exports.getBlacklistedCampaignMessagesCountMongoDB = getBlacklistedCampaignMessagesCountMongoDB;
 
 module.exports.start = start;
 module.exports.stop = stop;

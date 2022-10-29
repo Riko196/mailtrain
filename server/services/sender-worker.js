@@ -11,7 +11,7 @@ const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-send
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
 const PlatformSolver = require('../lib/sender/platform-solver');
-const { SenderWorkerState, senderWorkerInit } = require('../lib/sender/sender-worker/init');
+const { SenderWorkerState, senderWorkerInit, senderWorkerSynchronizedInit } = require('../lib/sender/sender-worker/init');
 const WorkerSynchronizer = require('../lib/sender/sender-worker/worker-synchronizer');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
@@ -43,6 +43,7 @@ const CHUNK_SIZE = 100;
         if (PlatformSolver.workerSynchronizationIsSet()) {
             this.workerSynchronizer = new WorkerSynchronizer(senderWorkerInfo, this.ranges);
         }
+        log.info(`SenderWorker:${this.workerId}`, `${JSON.stringify(this.ranges, null, 4)}`);
         /* Start doing sender worker loop */
         setImmediate(this.senderWorkerLoop.bind(this));
     }
@@ -60,6 +61,7 @@ const CHUNK_SIZE = 100;
             if (!preparedWorker) {
                 log.info(`SenderWorker:${this.workerId}`, `I am still substituted, I have to wait...`);
                 await sleep(5000);
+                await this.workerSynchronizer.solvePotentialDeadlock();
             }
         }
 
@@ -133,22 +135,12 @@ const CHUNK_SIZE = 100;
 
     /* Get all blacklisted subscribers from subscribers to speed up the whole sending. */
     async getBlacklisted(subscribers) {
-        /* email -> blacklisted */
-        const blacklisted = new Map();
-        subscribers.forEach((subscriber, key) => {
-            blacklisted.set(subscriber.email, false);
-        });
-
-        /* Mark all blacklisted subscribers */
+        /* Get all blacklisted subscribers from this chunk */
         const listBlacklisted = await this.mongodb.collection('blacklist').find({
-            email: { $in: Array.from(blacklisted.keys()) }
+            email: { $in: Array.from(subscribers.values()).map(subscriber => subscriber.email) }
         }).toArray();
 
-        listBlacklisted.forEach(subscriber => {
-            blacklisted.set(subscriber.email, true);
-        });
-
-        return blacklisted;
+        return listBlacklisted.map(blacklisted => blacklisted.email);
     }
 
     /* Insert if links not exist in MongoDB which were found during making mails. */
@@ -198,8 +190,8 @@ const CHUNK_SIZE = 100;
                 hashEmailPiece: { $gte: range.from, $lt: range.to }
             }).limit(CHUNK_SIZE).toArray();
 
-            log.verbose(`SenderWorker:${this.workerId}`,
-                `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);
+            /*log.verbose(`SenderWorker:${this.workerId}`,
+                `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);*/
             if (chunkCampaignMessages.length) {
                 await this.processCampaignMessages(task, chunkCampaignMessages);
             }
@@ -208,7 +200,7 @@ const CHUNK_SIZE = 100;
 
     /* From chunk of campaign messages make mails and send them to SMTP server. */
     async processCampaignMessages(campaignData, campaignMessages) {
-        log.verbose(`SenderWorker:${this.workerId}`, 'Start to processing chunk of campaign messages ...');
+        //log.verbose(`SenderWorker:${this.workerId}`, 'Start to processing chunk of campaign messages ...');
         const campaignId = campaignData.campaign.id;
         const subscribers = await this.getSubscribers(campaignMessages);
         const blacklisted = await this.getBlacklisted(subscribers);
@@ -227,8 +219,8 @@ const CHUNK_SIZE = 100;
                 await campaignMailSender.sendMail(mail, campaignMessageType, campaignMessage._id);
                 await activityLog.logCampaignTrackerActivity(CampaignTrackerActivityType.SENT,
                     campaignId, campaignMessage.list, campaignMessage.subscription);
-                log.verbose(`SenderWorker:${this.workerId}`,
-                    `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);
+                /*log.verbose(`SenderWorker:${this.workerId}`,
+                    `Message sent and status updated for ${campaignMessage.list}:${campaignMessage.subscription}`);*/
             } catch (error) {
                 if (error instanceof SendConfigurationError) {
                     log.error(`SenderWorker:${this.workerId}`,
@@ -321,7 +313,9 @@ async function spawnSenderWorker() {
     /* Connect to the MongoDB and accomplish setup */
     await connectToMongoDB();
     /* Init SenderWorker and get all info about him */
-    const senderWorkerInfo = await senderWorkerInit();
+    const senderWorkerInfo = PlatformSolver.workerSynchronizationIsSet()
+        ? await senderWorkerSynchronizedInit()
+        : senderWorkerInit();
     /* Create instance and start working */
     const senderWorker = new SenderWorker(senderWorkerInfo);
 

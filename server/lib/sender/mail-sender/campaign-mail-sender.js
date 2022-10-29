@@ -4,6 +4,7 @@ const { MailSender } = require('./mail-sender');
 const log = require('../../log');
 const { CampaignMessageErrorType, CampaignMessageStatus } = require('../../../../shared/campaigns');
 const { MessageType } = require('../../../../shared/messages');
+const { BLACKLISTED_RESPONSE } = require('../../../models/blacklist'); 
 
 /**
  * The class which inherits from MailSender and is responsible for sending mails of campaign (Regular, RSS, Triggered, Test) messages.
@@ -42,8 +43,8 @@ class CampaignMailSender extends MailSender {
 
         let result;
         try {
-            if (this.blacklisted.get(mail.to)) {
-                result = {};
+            if (this.blacklisted.includes(mail.to.address)) {
+                result = BLACKLISTED_RESPONSE;
             } else {
                 result = await super.sendMail(mail);
             }

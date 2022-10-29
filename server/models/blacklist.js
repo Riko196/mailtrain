@@ -10,6 +10,7 @@ const { enforce } = require('../lib/helpers');
 const {BlacklistActivityType} = require('../../shared/activity-log');
 const activityLog = require('../lib/activity-log');
 
+const BLACKLISTED_RESPONSE = { responseId: {}, response: 'BLACKLISTED' };
 
 async function listDTAjax(context, params) {
     shares.enforceGlobalPermission(context, 'manageBlacklist');
@@ -97,6 +98,7 @@ async function serverValidate(context, data) {
     return result;
 }
 
+module.exports.BLACKLISTED_RESPONSE = BLACKLISTED_RESPONSE;
 module.exports.listDTAjax = listDTAjax;
 module.exports.add = add;
 module.exports.remove = remove;

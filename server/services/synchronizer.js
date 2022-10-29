@@ -213,6 +213,8 @@ class Synchronizer {
                 log.error('Synchronizer', `Error occurred during sending campaign with id: ${campaignId}, it is postponing!`);
                 this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
                 await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
+                /* We rather call also this update campaign status although campaign is already set as FINISHED (there could appear some problem with delivered messages) */
+                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
                 continue;
             }
 
@@ -279,29 +281,26 @@ class Synchronizer {
         for (const sendingCampaign of sendingCampaigns) {
             const campaignId = sendingCampaign.id;
 
-            /* Find count of sent messages from MySQL */
-            const mysqlSentCount = await knex('campaign_messages').where({ 
-                campaign: campaignId,
-                status: CampaignMessageStatus.SENT
-            }).count('* as count').first();
+            /* Find count of successfully sent and blacklisted messages from MySQL and MongoDB */
+            const counts = {
+                mysqlSuccessfullySentCount: await campaigns.getSuccessfullySentCampaignMessagesCount(campaignId),
+                mongodbSuccessfullySentCount: await campaigns.getSuccessfullySentCampaignMessagesCountMongoDB(campaignId),
+                mysqlBlacklistedCount: await campaigns.getBlacklistedCampaignMessagesCount(campaignId),
+                mongodbBlacklistedSentCount: await campaigns.getBlacklistedCampaignMessagesCountMongoDB(campaignId)
+            };
 
-            /* Find count of sent messages from MongoDB */
-            const mongodbSentCount = await this.mongodb.collection('campaign_messages').countDocuments({
-                campaign: campaignId,
-                status: CampaignMessageStatus.SENT,
-                response: { $ne: null }
-            });
-
-            const delivered = mysqlSentCount.count + mongodbSentCount;
-
-            /* Find count of all messages from MySQL */
-            const allMessages = await knex('campaign_messages').where({ campaign: campaignId }).count('* as count').first();
-
+            const delivered = counts.mysqlSuccessfullySentCount.count + counts.mongodbSuccessfullySentCount;
             /* Update value of delivered messages */
             await knex('campaigns').where('id', campaignId).update({ delivered });
+            const blacklisted = counts.mysqlBlacklistedCount.count + counts.mongodbBlacklistedSentCount;
+            /* Update value of blacklisted messages */
+            await knex('campaigns').where('id', campaignId).update({ blacklisted });
+
+            /* Find count of all existing messages from MySQL */
+            const allMessages = await knex('campaign_messages').where({ campaign: campaignId }).count('* as count').first();
 
             /* If all messages are sent then update campaign status */
-            if (delivered === allMessages.count) {
+            if (blacklisted + delivered === allMessages.count) {
                 await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
             }
         }

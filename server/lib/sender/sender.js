@@ -92,7 +92,7 @@ async function spawn(callback) {
     if (config.mode === 'centralized') {
         const spawnWorkerFutures = [];
 
-        /* Reset sender_workers collection before spawning (it has impact iff synchronized is set, otherwise it is redundant call) */
+        /* Reset sender_workers collection before spawning (it has impact iff workerSynchronization is set, otherwise it is redundant call) */
         await resetSenderWorkersCollection();
         for (let workerId = 0; workerId < config.sender.workers; workerId++) {
             spawnWorkerFutures.push(spawnWorker(workerId));

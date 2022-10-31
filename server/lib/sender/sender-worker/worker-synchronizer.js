@@ -13,13 +13,13 @@ const SYNCHRONIZING_ROUND = 5;
  * SenderWorker component which periodically synchronize worker to which it belongs with all other workers.
  */
 class WorkerSynchronizer {
-    constructor(senderWorkerInfo, ranges) {
+    constructor(maxWorkers, workerId, state, ranges) {
         /* Get number of maximum workers who can be spawned */
-        this.maxWorkers = senderWorkerInfo.maxWorkers;
+        this.maxWorkers = maxWorkers;
         /* Get WorkerID */
-        this.workerId = senderWorkerInfo._id;
+        this.workerId = workerId;
         /* Get the current worker state (used as a reference object) */
-        this.state = { value: senderWorkerInfo.state };
+        this.state = state;
         /* List of all ranges that this worker currently owns (his own range + ranges from non-working workers) */
         this.ranges = ranges;
         /* MongoDB session */
@@ -55,17 +55,23 @@ class WorkerSynchronizer {
     }
 
     /** 
-     * Write to the MongoDB collection that this worker is still alive.
+     * Write to the MongoDB collection that this worker is still alive (repeat if transaction is aborted).
      */
     async reportAliveState(transactionSession) {
         log.verbose(`SenderWorker:${this.workerId}`, 'Periodic report...');
-        let updateResult = null;
-        await transactionSession.withTransaction(async () => {
-            updateResult = await this.mongodb.collection('sender_workers')
-                .updateOne({ _id: this.workerId }, { $set: { lastReport: new Date() } }, { transactionSession });
-        }, transactionOptions);
-        if (!updateResult.modifiedCount) {
-            log.error(`SenderWorker:${this.workerId}`, 'Missed reporting state!');
+        let transactionResult = { modifiedCount: 0 };
+        while (!transactionResult.modifiedCount) {
+            await transactionSession.withTransaction(async () => {
+                transactionResult = await this.mongodb.collection('sender_workers').updateOne(
+                    { _id: this.workerId },
+                    { $set: { lastReport: new Date() } },
+                    { transactionSession }
+                );
+            }, transactionOptions);
+
+            if (!transactionResult.modifiedCount) {
+                log.error(`SenderWorker:${this.workerId}`, 'Missed reporting state!');
+            }
         }
     }
 
@@ -116,6 +122,10 @@ class WorkerSynchronizer {
     async resolveDeadWorkers(transactionSession) {
         log.verbose(`SenderWorker:${this.workerId}`, 'Resolving dead workers...');
         const nonworkingWorkers = await this.getNonWorkingWorkers(transactionSession);
+        /* If everyone is working, there is no substitute and no need to release someone */
+        if (!nonworkingWorkers.length) {
+            return;
+        }
         /* Max amount of substitutions which this worker can do */
         let balanceFactor = this.computeBalanceFactor(nonworkingWorkers);
 
@@ -135,10 +145,14 @@ class WorkerSynchronizer {
                 if (!workerStillUnsubstituted) {
                     log.error(`SenderWorker:${this.workerId}`, `Dead worker ${unsubstitutedWorker._id} is already substituted!`);
                     await transactionSession.abortTransaction();
+                    return;
                 }
 
-                const updateResult = await this.mongodb.collection('sender_workers')
-                    .updateOne({ _id: unsubstitutedWorker._id }, { $set: { state: SenderWorkerState.DEAD, substitute: this.workerId } }, { transactionSession });
+                const updateResult = await this.mongodb.collection('sender_workers').updateOne(
+                    { _id: unsubstitutedWorker._id },
+                    { $set: { state: SenderWorkerState.DEAD, substitute: this.workerId } },
+                    { transactionSession }
+                );
 
                 if (updateResult.modifiedCount) {
                     await this.mongodb.collection('sender_workers')
@@ -148,6 +162,7 @@ class WorkerSynchronizer {
                 } else {
                     log.error(`SenderWorker:${this.workerId}`, `Missed DEAD worker ${unsubstitutedWorker._id} !`);
                     await transactionSession.abortTransaction();
+                    return;
                 }
 
                 /* If the transaction has not been aborted and worker is substituted by this worker, then push range of substituted worker */
@@ -165,22 +180,37 @@ class WorkerSynchronizer {
         
     /** 
      * After each worker iteration, check whether there are some SYNCHRONIZING workers waiting for their range that you
-     * currently own and give it back to them.
+     * currently own and release them.
      */
-    async checkSynchronizingWorkers(transactionSession) {
+    async releaseSynchronizingWorkers(transactionSession) {
         await transactionSession.withTransaction(async () => {
+            /* Get all synchronizing workers waiting for release */
             const synchronizingWorkers = await this.mongodb.collection('sender_workers').find({ 
                 state: SenderWorkerState.SYNCHRONIZING,
                 substitute: this.workerId
             }, { transactionSession }).toArray();
-    
+            
+            /* Release all synchronizing workers */
+            const updateResult = await this.mongodb.collection('sender_workers').updateMany(
+                { _id: { $in: synchronizingWorkers.map(worker => worker._id) } },
+                { $set: { substitute: null } },
+                { transactionSession }
+            );
+
+            /* Abort transaction if not all synchronizing workers have been updated */
+            if (updateResult.modifiedCount != synchronizingWorkers.length) {
+                log.error(`SenderWorker:${this.workerId}`, 'Releasing synchronizing workers transaction aborted!');
+                await transactionSession.abortTransaction();
+                return;
+            }
+
+            if (synchronizingWorkers.length) {
+                log.verbose(`SenderWorker:${this.workerId}`, `Releasing synchronizing substitutions: ${JSON.stringify(synchronizingWorkers, null, 4)}`);
+            }
+
+            /* Remove ranges that belong to synchronizing workers */
             for (const synchronizingWorker of synchronizingWorkers) {
-                await this.mongodb.collection('sender_workers')
-                    .updateOne({ _id: synchronizingWorker._id }, { $set: { substitute: null } }, { transactionSession });
-                
-                /* Remove substituted range that belongs to synchronizingWorker */
                 this.ranges = this.ranges.filter(range => range.from !== synchronizingWorker.range.from || range.to !== synchronizingWorker.range.to);
-                log.info(`SenderWorker:${this.workerId}`, `Synchronizing worker ${synchronizingWorker._id} and ranges changed ${this.ranges}`);
             }
         }, transactionOptions);
     }
@@ -191,8 +221,12 @@ class WorkerSynchronizer {
      async releaseRedundantSubstitutions(transactionSession) {
         // log.verbose(`SenderWorker:${this.workerId}`, 'Releasing redundant substitutions..');
         const nonworkingWorkers = await this.getNonWorkingWorkers(transactionSession);
+        /* If everyone is working, there is no substitute and no need to release someone */
+        if (!nonworkingWorkers.length) {
+            return;
+        }
         /* Compute current balance factor for this worker and release some substituted workers if it is negative value */
-        const balanceFactor = this.computeBalanceFactor(nonworkingWorkers);
+        let balanceFactor = this.computeBalanceFactor(nonworkingWorkers);
         if (balanceFactor >= 0) {
             return;
         } else {
@@ -200,11 +234,28 @@ class WorkerSynchronizer {
         }
 
         /* Filter only worker ids substituted by this worker */
-        const releasingWorkerIds = nonworkingWorkers.filter(worker => worker.substitute === this.workerId).slice(0, balanceFactor).map(worker => worker._id);
-        log.verbose(`SenderWorker:${this.workerId}`, `Releasing redundant substitutions: ${JSON.stringify(releasingWorkerIds, null, 4)}`);
+        const releasingWorkers = nonworkingWorkers
+            .filter(worker => worker.substitute === this.workerId).slice(0, balanceFactor);
+        log.verbose(`SenderWorker:${this.workerId}`, `Releasing redundant substitutions: ${JSON.stringify(releasingWorkers, null, 4)}`);
         /* Unsubstitute all chosen workers to keep substitutions balanced. */
         await transactionSession.withTransaction(async () => {
-            await this.mongodb.collection('sender_workers').updateMany({ _id: { $in: releasingWorkerIds } }, { substitute: null }, { transactionSession });
+            const updateResult = await this.mongodb.collection('sender_workers').updateMany(
+                { _id: { $in: releasingWorkers.map(worker => worker._id) } },
+                { $set: { substitute: null } },
+                { transactionSession }
+            );
+
+            /* Abort transaction if no all releasing workers have been updated */
+            if (updateResult.modifiedCount != releasingWorkers.length) {
+                log.error(`SenderWorker:${this.workerId}`, 'Releasing redundant workers transaction aborted!');
+                await transactionSession.abortTransaction();
+                return;
+            }
+
+            /* Remove ranges that belong to releasing workers */
+            for (const releasingWorker of releasingWorkers) {
+                this.ranges = this.ranges.filter(range => range.from !== releasingWorker.range.from || range.to !== releasingWorker.range.to);
+            }
         }, transactionOptions);
     }
 
@@ -216,37 +267,37 @@ class WorkerSynchronizer {
         const transactionSession = getNewTransactionSession();
         try {
             await transactionSession.withTransaction(async () => {
-                aliveWorkers = await getMongoDB().collection('sender_workers').aggregate([
+                aliveWorkers = await this.mongodb.collection('sender_workers').aggregate([
                     { $addFields: { reportDifference: { $subtract: [new Date(), '$lastReport'] } } },
-                    { $match: { _id: { $ne: workerId }, state: SenderWorkerState.WORKING, reportDifference: { $lt: SYNCHRONIZING_ROUND * PERIOD } } }
+                    { $match: { _id: { $ne: this.workerId }, state: SenderWorkerState.WORKING, reportDifference: { $lt: SYNCHRONIZING_ROUND * PERIOD } } }
                 ], { transactionSession }).toArray();
         
                 if (!aliveWorkers.length) {
                     /* Set all WORKING workers to DEAD state */
-                    await getMongoDB().collection('sender_workers').updateMany(
+                    await this.mongodb.collection('sender_workers').updateMany(
                         { state: SenderWorkerState.WORKING },
-                        { state: SenderWorkerState.DEAD },
+                        { $set: { state: SenderWorkerState.DEAD } },
                         { transactionSession }
                     );
                     
                     /* Remove all substitutions */
-                    await getMongoDB().collection('sender_workers').updateMany(
+                    await this.mongodb.collection('sender_workers').updateMany(
                         { substitute: { $ne: null } },
-                        { substitute: null },
+                        { $set: { substitute: null } },
                         { transactionSession }
                     );
                     
                     /* Set yourself to WORKING state */
-                    await getMongoDB().collection('sender_workers').updateOne(
-                        { _id: workerId },
-                        { state: SenderWorkerState.WORKING, lastReport: new Date(), substitute: null },
+                    await this.mongodb.collection('sender_workers').updateOne(
+                        { _id: this.workerId },
+                        { $set: { state: SenderWorkerState.WORKING, lastReport: new Date(), substitute: null } },
                         { transactionSession }
                     );
-                    log.error(`SenderWorker:${this.workerId}`, `Deadlock detected! Solving problem...`);
+                    log.error(`SenderWorker:${this.workerId}`, `Potential deadlock detected! Solving problem...`);
                 }
             }, transactionOptions);
         } catch(error) {
-            log.error(`SenderWorker:${this.workerId}`, `Unexpected error detected during resolvin deadlock ${error}`);
+            log.error(`SenderWorker:${this.workerId}`, `Unexpected error detected during resolving deadlock ${error}`);
         } finally {
             await transactionSession.endSession();
         }

@@ -11,7 +11,12 @@ const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-send
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
 const PlatformSolver = require('../lib/sender/sender-worker/platform-solver');
-const { SenderWorkerState, senderWorkerInit, senderWorkerSynchronizedInit } = require('../lib/sender/sender-worker/init');
+const { 
+        SenderWorkerState,
+        workerSynchronizationIsSet,
+        senderWorkerInit,
+        senderWorkerSynchronizedInit
+    } = require('../lib/sender/sender-worker/init');
 const WorkerSynchronizer = require('../lib/sender/sender-worker/worker-synchronizer');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
@@ -40,10 +45,10 @@ const CHUNK_SIZE = 100;
         this.mongodb = getMongoDB();
         /* If worker synchronization is set, start an asynchronous callback that creates WorkerSynchronizer
          * for this worker and takes care of worker synchronization */
-        if (PlatformSolver.workerSynchronizationIsSet()) {
-            this.workerSynchronizer = new WorkerSynchronizer(senderWorkerInfo, this.ranges);
+        if (workerSynchronizationIsSet()) {
+            this.workerSynchronizer = new WorkerSynchronizer(this.maxWorkers, this.workerId, this.state, this.ranges);
         }
-        log.info(`SenderWorker:${this.workerId}`, `${JSON.stringify(this.ranges, null, 4)}`);
+
         /* Start doing sender worker loop */
         setImmediate(this.senderWorkerLoop.bind(this));
     }
@@ -63,6 +68,11 @@ const CHUNK_SIZE = 100;
                 await sleep(5000);
                 await this.workerSynchronizer.solvePotentialDeadlock();
             }
+
+            /* If the process is stopped during waiting, then stop it */
+            if (this.stopWorking) {
+                process.exit(0);
+            }
         }
 
         /* Set yourself to WORKING state */
@@ -76,7 +86,7 @@ const CHUNK_SIZE = 100;
 
     /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
     async senderWorkerLoop() {
-        if (PlatformSolver.workerSynchronizationIsSet()) {
+        if (workerSynchronizationIsSet()) {
             /* Wait until you can start and then start worker loop (state === WORKING and substitute === null) */
             await this.waitAndPrepareForTheStart();
         }
@@ -90,8 +100,8 @@ const CHUNK_SIZE = 100;
                     await this.checkQueuedMessages(range);
                 }
 
-                if (PlatformSolver.workerSynchronizationIsSet()) {
-                    await this.workerSynchronizer.checkSynchronizingWorkers(transactionSession);
+                if (workerSynchronizationIsSet()) {
+                    await this.workerSynchronizer.releaseSynchronizingWorkers(transactionSession);
                     await this.workerSynchronizer.releaseRedundantSubstitutions(transactionSession);
                 }
             } catch (error) {
@@ -317,7 +327,7 @@ async function spawnSenderWorker() {
     /* Get worker ID */
     const workerId = PlatformSolver.getWorkerId();
     /* Init SenderWorker and get all info about him */
-    const senderWorkerInfo = PlatformSolver.workerSynchronizationIsSet()
+    const senderWorkerInfo = workerSynchronizationIsSet()
         ? await senderWorkerSynchronizedInit(workerId, maxWorkers)
         : senderWorkerInit(workerId, maxWorkers);
     /* Create instance and start working */
@@ -339,7 +349,7 @@ async function spawnSenderWorker() {
     }
 
     if (PlatformSolver.isCentralized()) {
-        process.send({ type: 'worker-started' });
+        // process.send({ type: 'worker-started' });
     }
 }
 

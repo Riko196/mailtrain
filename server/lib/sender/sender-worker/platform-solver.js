@@ -56,13 +56,6 @@ class PlatformSolver {
     static isCentralized() {
         return this.runningPlatform === PlatformType.CENTRALIZED;
     }
-
-    /**
-     * Return whether the sender workers will synchronize with each other.
-     */
-     static workerSynchronizationIsSet() {
-        return config.sender.workerSynchronization;
-    }
 }
 
 PlatformSolver.findPlatform();

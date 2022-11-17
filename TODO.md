@@ -26,11 +26,8 @@ Note that some of these may be already obsolete...
 - Aggregated RSS campaigns
 
 ### Sender
-- Check transaction consistency among MongoDB and also Synchronizer knex queries
-- Add synchronizing into Sender
-- Use campaign functions in Synchronizer for synchronizing campaign data
-- Send triggered campaigns just like REGULAR and RSS, not as queued messages (it would be much more efficient)
+- Improve memory complexity for sending queued messages
+- Simplify rescheduling 
 
 ### Distributed Deployment
-- Set up sharding for MongoDB (in the future)
 - Add scripts for Kubernetes (in the future)

@@ -4,7 +4,7 @@ const { connectToMongoDB, getMongoDB, getNewTransactionSession } = require('../l
 const config = require('../lib/config');
 const log = require('../lib/log');
 const activityLog = require('../lib/activity-log');
-const { sleep } = require('../lib/helpers');
+const { sleep, getRandomFromRange } = require('../lib/helpers');
 const { CampaignTrackerActivityType } = require('../../shared/activity-log');
 const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker');
 const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-sender');
@@ -19,23 +19,26 @@ const {
     } = require('../lib/sender/sender-worker/init');
 const WorkerSynchronizer = require('../lib/sender/sender-worker/worker-synchronizer');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
-const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
+const { CampaignStatus } = require('../../shared/campaigns');
+const { MessageStatus } = require('../../shared/messages');
 const { MessageType } = require('../../shared/messages');
 const subscriptions = require('../models/subscriptions');
 
 /** Chunk of messages which will be processed in one iteration. */
 const CHUNK_SIZE = 100;
+/** Range of period of time for worker sleeping if there is no available work. */
+const SLEEP_PERIOD = { min: 10000, max: 30000 };
 
 /**
  * The main component of distributed system for making and sending mails.
  */
- class SenderWorker {
+class SenderWorker {
     constructor(senderWorkerInfo) {
         /* Get number of maximum workers who can be spawned */
         this.maxWorkers = senderWorkerInfo.maxWorkers;
         /* Get WorkerID */
         this.workerId = senderWorkerInfo._id;
-        /* Get the current worker state (used as a reference object) */
+        /* Get the current worker state (used as a reference object to be able to change it globally from WorkerSynchronizer class) */
         this.state = { value: senderWorkerInfo.state };
         /* List of all ranges that this worker currently owns (his own range + ranges from non-working workers) */
         this.ranges = [senderWorkerInfo.range];
@@ -81,7 +84,6 @@ const CHUNK_SIZE = 100;
             { $set: { state: SenderWorkerState.WORKING } }
         );
         this.state.value = SenderWorkerState.WORKING;
-
     }
 
     /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
@@ -92,7 +94,10 @@ const CHUNK_SIZE = 100;
         }
 
         log.info(`SenderWorker:${this.workerId}`, `I am going to work...`);
+
         while (!this.stopWorking) {
+            this.noTaskAvailable = true;
+
             const transactionSession = getNewTransactionSession();
             try {
                 for (const range of this.ranges) {
@@ -109,6 +114,11 @@ const CHUNK_SIZE = 100;
                 log.error(`SenderWorker:${this.workerId}`, error.stack);
             } finally {
                 await transactionSession.endSession();
+            }
+
+            /* If there was no work during the current iteration, then go to sleep for time randomly generated from SLEEP_PERIOD range */
+            if (this.noTaskAvailable) {
+                await sleep(getRandomFromRange(SLEEP_PERIOD.min, SLEEP_PERIOD.max));
             }
         }
 
@@ -196,13 +206,14 @@ const CHUNK_SIZE = 100;
             const campaignId = task.campaign.id;
             const chunkCampaignMessages = await this.mongodb.collection('campaign_messages').find({
                 campaign: campaignId,
-                status: CampaignMessageStatus.SCHEDULED,
+                status: MessageStatus.SCHEDULED,
                 hashEmailPiece: { $gte: range.from, $lt: range.to }
             }).limit(CHUNK_SIZE).toArray();
 
             /*log.verbose(`SenderWorker:${this.workerId}`,
                 `Received ${chunkCampaignMessages.length} chunkCampaignMessages for campaign: ${campaignId}`);*/
             if (chunkCampaignMessages.length) {
+                this.noTaskAvailable = false;
                 await this.processCampaignMessages(task, chunkCampaignMessages);
             }
         };
@@ -221,7 +232,8 @@ const CHUNK_SIZE = 100;
             campaignData.isMassEmail,
             blacklisted
         );
-
+        
+        let withErrors = false;
         for (const campaignMessage of campaignMessages) {
             try {
                 const mail = await campaignMailMaker.makeMail(campaignMessage);
@@ -236,7 +248,7 @@ const CHUNK_SIZE = 100;
                     log.error(`SenderWorker:${this.workerId}`,
                         `Sending message to ${campaignMessage.list}:${campaignMessage.subscription} failed with error: ${error}. ` +
                         'Will retry the message if within retention interval.');
-                    await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { withErrors: true });
+                    withErrors = true;
                     break;
                 } else {
                     log.error(`SenderWorker:${this.workerId}`,
@@ -245,6 +257,9 @@ const CHUNK_SIZE = 100;
             }
         }
 
+        if (campaignData.withErrors === undefined || campaignData.withErrors !== withErrors) {
+            await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { $set: { withErrors, withErrorsUpdated: new Date() } });
+        }
         await this.insertLinksIfNotExist(campaignMailMaker.links);
     }
 
@@ -255,7 +270,7 @@ const CHUNK_SIZE = 100;
     async checkQueuedMessages(range){
         /* Processing queued campaign messages (TRIGGERED, TEST) */
         const chunkQueuedCampaignMessages = await this.mongodb.collection('queued').find({
-            status: CampaignMessageStatus.SCHEDULED,
+            status: MessageStatus.SCHEDULED,
             type: { $in: [MessageType.TRIGGERED, MessageType.TEST] },
             hashEmailPiece: { $gte: range.from, $lt: range.to }
         }).limit(CHUNK_SIZE).toArray();
@@ -267,12 +282,13 @@ const CHUNK_SIZE = 100;
 
         /* Processing queued not campaign messages (API_TRANSACTIONAL, SUBSCRIPTION) */
         const chunkQueuedMessages = await this.mongodb.collection('queued').find({
-            status: CampaignMessageStatus.SCHEDULED,
+            status: MessageStatus.SCHEDULED,
             type: { $in: [MessageType.API_TRANSACTIONAL, MessageType.SUBSCRIPTION] },
             hashEmailPiece: { $gte: range.from, $lt: range.to }
         }).limit(CHUNK_SIZE).toArray();
 
-        if (chunkQueuedMessages.length !== 0) {
+        if (chunkQueuedMessages.length) {
+            this.noTaskAvailable = false;
             await this.processQueuedMessages(chunkQueuedMessages);
         }
     };
@@ -288,7 +304,8 @@ const CHUNK_SIZE = 100;
                 queuedMessage.isMassEmail
             );
             const target = queuedMailMaker.makeTarget(queuedMessage);
-
+            
+            let withErrors = false;
             try {
                 const mail = await queuedMailMaker.makeMail(queuedMessage);
                 await queuedMailSender.sendMail(mail, queuedMessage._id);
@@ -298,8 +315,7 @@ const CHUNK_SIZE = 100;
                     log.error(`SenderWorker:${this.workerId}`,
                         `Sending message to ${target} failed with error: ${error.message}. ` +
                         'Will retry the message if within retention interval.');
-                    await this.mongodb.collection('queued').updateOne({ _id: queuedMessage._id }, { withErrors: true });
-                    break;
+                    withErrors = true;
                 } else {
                     log.error(`SenderWorker:${this.workerId}`,
                         `Sending message to ${target} failed with error: ${error.message}. Dropping the message.`);
@@ -313,6 +329,7 @@ const CHUNK_SIZE = 100;
                 }
             }
 
+            await this.mongodb.collection('queued').updateOne({ _id: queuedMessage._id }, { $set: { withErrors } });
             await this.insertLinksIfNotExist(queuedMailMaker.links);
         }
     }
@@ -349,7 +366,7 @@ async function spawnSenderWorker() {
     }
 
     if (PlatformSolver.isCentralized()) {
-        // process.send({ type: 'worker-started' });
+        process.send({ type: 'worker-started' });
     }
 }
 

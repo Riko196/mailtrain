@@ -82,13 +82,11 @@ class WorkerSynchronizer {
     async getNonWorkingWorkers(transactionSession) {
         let nonworkingWorkers = [];
         await transactionSession.withTransaction(async () => {
-            nonworkingWorkers = await this.mongodb.collection('sender_workers').aggregate([
-                {
+            nonworkingWorkers = await this.mongodb.collection('sender_workers').aggregate([{
                     $addFields: {
                         reportDifference: { $subtract: [new Date(), '$lastReport'] }
                     }
-                },
-                {  
+                }, {  
                     $match: {
                         $or: [ 
                             { substitute: { $ne: null } },

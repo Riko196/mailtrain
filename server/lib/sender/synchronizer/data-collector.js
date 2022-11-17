@@ -13,7 +13,8 @@ const knex = require('../../knex');
 const log = require('../../log');
 const { enforce } = require('../../helpers');
 const { MessageType } = require('../../../../shared/messages');
-const { CampaignSource, CampaignMessageStatus, CampaignStatus } = require('../../../../shared/campaigns');
+const { CampaignSource, CampaignStatus } = require('../../../../shared/campaigns');
+const { MessageStatus } = require('../../../../shared/messages');
 
 /**
  * DataCollector collects all needed data for processing (sending) one specific campaign or queued message from MySQL
@@ -23,7 +24,7 @@ class DataCollector {
     async collectData(query) {
         // log.verbose('DataCollector', `Starting collecting data for campaign with ID ${query.campaignId}`);
         /* Result data */
-        this.data = { withErrors: false };
+        this.data = {};
 
         const type = query.type;
         await knex.transaction(async tx => {
@@ -204,7 +205,7 @@ class DataCollector {
 
     collectAdditionalQueuedData(query) {
         this.data.type = query.type;
-        this.data.status = CampaignMessageStatus.SCHEDULED;
+        this.data.status = MessageStatus.SCHEDULED;
         if (this.isQueuedCampaignMessage(query.type)) {
             this.data.list = query.list;
             this.data.subscription = query.subscription;

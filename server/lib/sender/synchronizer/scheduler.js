@@ -6,8 +6,8 @@ const log = require('../../log');
 const activityLog = require('../../activity-log');
 const campaigns = require('../../../models/campaigns');
 const { CampaignActivityType } = require('../../../../shared/activity-log');
-const { CampaignStatus, CampaignMessageStatus, CampaignType } = require('../../../../shared/campaigns');
-const { MessageType } = require('../../../../shared/messages');
+const { CampaignStatus, CampaignType } = require('../../../../shared/campaigns');
+const { MessageType, MessageStatus } = require('../../../../shared/messages');
 
 const CHECK_PERIOD = 30 * 1000;
 const CHUNK_SIZE = 1000;
@@ -23,10 +23,10 @@ class Scheduler {
         this.synchronizingScheduledCampaigns = synchronizingScheduledCampaigns;
         this.sendConfigurationMessageQueue = sendConfigurationMessageQueue;
         this.notifier = notifier;
-        /* sendConfigurationId -> {retryCount, postponeTill} */
+        /* sendConfigurationId -> { retryCount, postponeTill } */
         this.sendConfigurationStatuses = new Map();
         /* Values in seconds which point to the next postpone time when messages fail */
-        this.retryBackoff = [10, 20, 30, 30, 60, 60, 120, 120, 300];
+        this.retryBackoff = [100, 150, 200, 300, 600, 600, 1200, 1200, 3000];
         /* Mutexes */
         this.queuedSchedulerRunning = false;
         this.campaignSchedulerRunning = false;
@@ -122,6 +122,7 @@ class Scheduler {
             const rows = await knex('queued')
                 .orderByRaw(`FIELD(type, ${MessageType.TRIGGERED}, ${MessageType.API_TRANSACTIONAL}, ${MessageType.TEST}, ${MessageType.SUBSCRIPTION}) DESC, id ASC`)
                 .where('send_configuration', sendConfigurationId)
+                .where('status', MessageStatus.SCHEDULED)
                 .whereNotIn('id', messageIdsInProcessing)
                 .limit(CHUNK_SIZE);
 
@@ -222,7 +223,7 @@ class Scheduler {
     }
 
     /**
-     * Prepare scheduled campaigns for Synchronizer.
+     * Prepare scheduled campaign for Synchronizer.
      */
     async prepareCampaign(campaignId) {
         try {
@@ -230,7 +231,7 @@ class Scheduler {
 
             const preparedCampaignMessage = await knex('campaign_messages')
                 .where({
-                    status: CampaignMessageStatus.SCHEDULED,
+                    status: MessageStatus.SCHEDULED,
                     campaign: campaignId
                 }).first();
 
@@ -249,26 +250,17 @@ class Scheduler {
     }
 
     /**
-     * Get information whether sendConfiguration should be scheduled now or postponed to the future.
-     */
-    isSendConfigurationPostponed(sendConfigurationId) {
-        const now = Date.now();
-        const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
-        return sendConfigurationStatus.postponeTill > now;
-    }
-
-    /**
      * Get sendConfiguration status.
      */
     getSendConfigurationStatus(sendConfigurationId) {
-        let status = this.sendConfigurationStatuses.get(sendConfigurationId);
+        let status = this.sendConfigurationStatuses[sendConfigurationId];
         if (!status) {
             status = {
                 retryCount: 0,
                 postponeTill: 0
             };
 
-            this.sendConfigurationStatuses.set(sendConfigurationId, status);
+            this.sendConfigurationStatuses[sendConfigurationId] = status;
         }
 
         return status;
@@ -281,9 +273,9 @@ class Scheduler {
         const result = [];
         const now = Date.now();
 
-        for (const entry of this.sendConfigurationStatuses.entries()) {
-            if (entry[1].postponeTill > now) {
-                result.push(entry[0]);
+        for (const [key, value] of Object.entries(this.sendConfigurationStatuses)) {
+            if (value.postponeTill > now) {
+                result.push(key);
             }
         }
 
@@ -313,14 +305,21 @@ class Scheduler {
     }
 
     /**
-     * Method called by Synchronizer when some new chunk of queued messages or campaigns are processed (SENT or FAILED).
+     * Method called by Synchronizer when some new chunk of queued messages or campaigns are processed.
      */
-    checkSentErrors(sendConfigurationId, withErrors) {
+    postponeSendConfigurationId(sendConfigurationId, lastUpdate) {
         const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
-        if (withErrors) {
+        if (this.sendConfigurationStatuses[sendConfigurationId].postponeTill <= lastUpdate.getTime()) {
             this.setSendConfigurationRetryCount(sendConfigurationStatus, sendConfigurationStatus.retryCount + 1);
-        } else {
-            this.setSendConfigurationRetryCount(sendConfigurationStatus, 0);
+        }
+    }
+
+    /**
+     * Method called by Synchronizer when some new chunk of queued messages or campaigns are successfully sent and we want to reset SendConfigurationRetryCount.
+     */
+    resetSendConfigurationRetryCount(sendConfigurationId, lastUpdate) {
+        if (this.sendConfigurationStatuses[sendConfigurationId] && this.sendConfigurationStatuses[sendConfigurationId].postponeTill <= lastUpdate.getTime()) {
+            delete this.sendConfigurationStatuses[sendConfigurationId];
         }
     }
 

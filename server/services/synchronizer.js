@@ -4,7 +4,8 @@ const { connectToMongoDB, getMongoDB } = require('../lib/mongodb');
 const config = require('../lib/config');
 const knex = require('../lib/knex');
 const { MessageType } = require('../../shared/messages');
-const { CampaignStatus, CampaignMessageStatus } = require('../../shared/campaigns');
+const { CampaignStatus } = require('../../shared/campaigns');
+const { MessageStatus } = require('../../shared/messages');
 const log = require('../lib/log');
 const links = require('../models/links');
 const campaigns = require('../models/campaigns');
@@ -73,6 +74,8 @@ class Synchronizer {
                 await this.synchronizeSendingCampaignsFromMongoDB();
                 /* MongoDB --> Mailtrain */
                 await this.synchronizeSentQueuedMessagesFromMongoDB();
+                /* MongoDB --> Mailtrain */
+                await this.synchronizeMessyMessagesFromMongoDB();
 
                 if (this.noTaskAvailable()) {
                     await this.notifier.waitFor('taskAvailable');
@@ -183,15 +186,18 @@ class Synchronizer {
             
             /* Collect all needed data for this queued message and add it to the list */
             const collectedMessageData = await this.dataCollector.collectData(query);
+            collectedMessageData._id = queuedMessage.id;
             preparedQueuedMessages.push(collectedMessageData);
         }
 
         await this.mongodb.collection('queued').insertMany(preparedQueuedMessages);
         log.verbose('Synchronizer', 'Queued messages successfully sent to MongoDB!');
 
-        /* Remove all sent messages */
-        const deletingIds = scheduledQueuedMessages.map(queuedMessage => queuedMessage.id);
-        await knex('queued').whereIn('id', deletingIds).del();
+        /* Set as SENT although it has not been yet (for rescheduling purpose) */
+        const updatingIds = scheduledQueuedMessages.map(queuedMessage => queuedMessage.id);
+        await knex('queued').whereIn('id', updatingIds).update({
+            status: MessageStatus.SENT
+        });
     }
 
     /**
@@ -211,10 +217,10 @@ class Synchronizer {
             /* Check whether no error occurred during sending campaign and if so then postpone sending this campaign */
             if (sendingCampaign.withErrors) {
                 log.error('Synchronizer', `Error occurred during sending campaign with id: ${campaignId}, it is postponing!`);
-                this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
+                this.scheduler.postponeSendConfigurationId(sendingCampaign.sendConfiguration.id, sendingCampaign.withErrorsUpdated);
                 await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
-                /* We rather call also this update campaign status although campaign is already set as FINISHED (there could appear some problem with delivered messages) */
-                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
+                /* Set problematic campaign as SCHEDULED and Scheduler will schedule it after currently set postponed period  */
+                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.SCHEDULED);
                 continue;
             }
 
@@ -222,9 +228,9 @@ class Synchronizer {
             const remainingCampaignMessages = await this.mongodb.collection('campaign_messages').countDocuments({
                 campaign: campaignId
             });
+
             if (!remainingCampaignMessages) {
                 log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
-                this.scheduler.checkSentErrors(sendingCampaign.sendConfiguration, sendingCampaign.withErrors);
                 await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
                 /* We rather call also this update campaign status although campaign is already set as FINISHED (there could appear some problem with delivered messages) */
                 await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
@@ -319,7 +325,7 @@ class Synchronizer {
      */
     async synchronizeSentCampaignMessagesFromMongoDB() {
         const sentCampaignMessages = await this.mongodb.collection('campaign_messages').find({
-            status: CampaignMessageStatus.SENT,
+            status: MessageStatus.SENT,
             response: { $ne: null }
         }).limit(CHUNK_SIZE).toArray();
 
@@ -329,7 +335,8 @@ class Synchronizer {
 
         log.verbose('Synchronizer', `Received ${sentCampaignMessages.length} sent messages from MongoDB!`);
         for (const sentCampaignMessage of sentCampaignMessages) {
-            const { _id, campaign, status, response, responseId } = sentCampaignMessage;
+            const { _id, campaign, send_configuration, status, response, responseId, updated } = sentCampaignMessage;
+            this.scheduler.resetSendConfigurationRetryCount(send_configuration, updated);
             await campaigns.updateMessageResponse(contextHelpers.getAdminContext(), _id, campaign, status, response, responseId);
         }
 
@@ -342,7 +349,7 @@ class Synchronizer {
      */
     async synchronizeFailedCampaignMessagesFromMongoDB() {
         const failedCampaignMessages = await this.mongodb.collection('campaign_messages').find({
-            status: CampaignMessageStatus.FAILED
+            status: MessageStatus.FAILED
         }).limit(CHUNK_SIZE).toArray();
 
         if (failedCampaignMessages.length === 0) {
@@ -365,12 +372,23 @@ class Synchronizer {
     async synchronizeSentQueuedMessagesFromMongoDB() {
         //log.verbose('Synchronizer', 'Synchronizing sent queued messages from MongoDB...');
         const queuedMessages = await this.mongodb.collection('queued').find({
-            status: { $in: [CampaignMessageStatus.SENT, CampaignMessageStatus.FAILED] },
+            status: { $in: [MessageStatus.SENT, MessageStatus.FAILED] },
             response: { $ne: null }
         }).limit(CHUNK_SIZE).toArray();
 
         for (const queuedMessage of queuedMessages) {
-            this.scheduler.checkSentErrors(queuedMessage.sendConfiguration, queuedMessage.withErrors);
+            if (queuedMessage.attachments) {
+                await this.unlockAttachments(queuedMessage.attachments);
+            }
+
+            if (queuedMessage.withErrors) {
+                this.scheduler.postponeSendConfigurationId(queuedMessage.sendConfiguration, queuedMessage.updated);
+                await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
+                await knex('queued').where('id', queuedMessage._id).update('status', MessageStatus.SCHEDULED);
+                continue;
+            } else {
+                await knex('queued').where('id', queuedMessage._id).del();
+            }
 
             if (queuedMessage.type === MessageType.TRIGGERED) {
                 await this.processSentTriggeredMessage(queuedMessage);
@@ -378,10 +396,6 @@ class Synchronizer {
 
             if (queuedMessage.campaign && queuedMessage.type === MessageType.TEST) {
                 await this.processSentCampaignTestMessage(queuedMessage);
-            }
-
-            if (queuedMessage.attachments) {
-                await this.unlockAttachments(queuedMessage.attachments);
             }
         }
 
@@ -396,7 +410,7 @@ class Synchronizer {
                 list: triggeredMessage.listId,
                 subscription: triggeredMessage.subscriptionId,
                 send_configuration: triggeredMessage.sendConfiguration.id,
-                status: CampaignMessageStatus.SENT,
+                status: MessageStatus.SENT,
                 response: triggeredMessage.response,
                 response_id: triggeredMessage.response_id,
                 updated: new Date(),
@@ -435,7 +449,7 @@ class Synchronizer {
      * Unlock all attachments (at semaphore) used in sent queued message.
      */
     async unlockAttachments(attachments) {
-        attachments.forEach(async (attachment) => {
+        for (const attachment of attachments) {
             /* This means that it is an attachment recorded in table files_campaign_attachment */
             if (attachment.id) {
                 try {
@@ -450,7 +464,54 @@ class Synchronizer {
                     log.verbose(error.stack);
                 }
             }
-        });
+        }
+    }
+
+    /**
+     * Synchronize all messy messages (set status but no response for too long time).
+     */
+     async synchronizeMessyMessagesFromMongoDB() {
+        /* Campaign messages */
+        const campaignMessyMessages = await this.getMessyMessagesFromMongoDB('campaign_messages');
+        /* Update status to FAILED and remove messy messages */
+        for (const campaignMessyMessage of campaignMessyMessages) {
+            const { _id, campaign, response, responseId } = campaignMessyMessage;
+            await campaigns.updateMessageResponse(contextHelpers.getAdminContext(), _id, campaign, MessageStatus.FAILED, response, responseId);
+        }
+        let deletingIds = campaignMessyMessages.map(campaignMessyMessage => campaignMessyMessage._id);
+        await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
+        
+        /* QUEUED messages */
+        const queuedMessyMessages = await this.getMessyMessagesFromMongoDB('queued');
+        /* In QUEUED messages we do not need to update status and response, just unlock attachments and remove messy messages */
+        for (const queuedMessyMessage of queuedMessyMessages) {
+            if (queuedMessyMessage.attachments) {
+                await this.unlockAttachments(queuedMessyMessage.attachments);
+            }
+        }
+        deletingIds = queuedMessyMessages.map(queuedMessyMessage => queuedMessyMessage._id);
+        await this.mongodb.collection('queued').deleteMany({ _id: { $in: deletingIds } });
+    }
+
+    /**
+     * Get all messy messages from collection collectionName.
+     */
+    async getMessyMessagesFromMongoDB(collectionName) {
+        /* Constant which specifies how long has to be old messy message so that it woulde be synchronized */
+        const MESSY_DIFFERENCE = 86400;
+    
+        return await this.mongodb.collection(collectionName).aggregate([ {
+                $addFields: { updatedDifference: { $subtract: [new Date(), '$updated'] } }
+            }, {  
+                $match: {
+                    $and: [ 
+                        { status: { $in: [MessageStatus.SENT, MessageStatus.FAILED] }, },
+                        { response: null },
+                        { updatedDifference: { $gte: MESSY_DIFFERENCE } }
+                    ] 
+                } 
+            }
+        ]).limit(CHUNK_SIZE).toArray();
     }
 }
 

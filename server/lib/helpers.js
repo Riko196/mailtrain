@@ -10,7 +10,8 @@ module.exports = {
     normalizeEmail,
     hashEmail,
     hashToUint32,
-    sleep
+    sleep,
+    getRandomFromRange
 };
 
 function enforce(condition, message) {
@@ -79,4 +80,8 @@ function hashToUint32(hash) {
 
 function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getRandomFromRange(from, to) {
+    return Math.floor(Math.random() * (to - from) + from);
 }

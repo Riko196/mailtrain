@@ -1,7 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
-const { MessageType } = require('../../shared/messages');
+const { MessageType, MessageStatus } = require('../../shared/messages');
 const tools = require('../lib/tools');
 const htmlToText = require('html-to-text');
 const files = require('./files');
@@ -34,7 +34,8 @@ async function queueCampaignMessageTx(tx, sendConfigurationId, listId, subscript
     await tx('queued').insert({
         send_configuration: sendConfigurationId,
         type: messageType,
-        data: JSON.stringify(msgData)
+        data: JSON.stringify(msgData),
+        status: MessageStatus.SCHEDULED
     });
 }
 
@@ -75,7 +76,8 @@ async function queueSubscriptionMessage(sendConfigurationId, to, subject, encryp
     await knex('queued').insert({
         send_configuration: sendConfigurationId,
         type: MessageType.SUBSCRIPTION,
-        data: JSON.stringify(msgData)
+        data: JSON.stringify(msgData),
+        status: MessageStatus.SCHEDULED
     });
 
     sender.scheduleCheck();
@@ -102,7 +104,8 @@ async function queueAPITransactionalMessageTx(tx, sendConfigurationId, email, su
     await tx('queued').insert({
         send_configuration: sendConfigurationId,
         type: MessageType.API_TRANSACTIONAL,
-        data: JSON.stringify(msgData)
+        data: JSON.stringify(msgData),
+        status: MessageStatus.SCHEDULED
     });
 }
 
@@ -112,7 +115,6 @@ async function dropQueuedMessage(queuedMessage) {
         .del();
 }
 
-/* TODO transfer it to different module */
 async function getArchivedMessage(campaignCid, listCid, subscriptionCid, settings, isTest = false) {
     const dataCollector = new DataCollector();
 

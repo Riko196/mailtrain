@@ -2,7 +2,7 @@
 
 const { MailSender } = require('./mail-sender');
 const log = require('../../log');
-const { CampaignMessageErrorType, CampaignMessageStatus } = require('../../../../shared/campaigns');
+const { MessageErrorType, MessageStatus } = require('../../../../shared/messages');
 const { MessageType } = require('../../../../shared/messages');
 const { BLACKLISTED_RESPONSE } = require('../../../models/blacklist'); 
 
@@ -36,7 +36,7 @@ class CampaignMailSender extends MailSender {
                 _id: campaignMessageID
             }, {
                 $set: {
-                    status: CampaignMessageStatus.SENT,
+                    status: MessageStatus.SENT,
                     updated: new Date()
                 }
             });
@@ -49,13 +49,13 @@ class CampaignMailSender extends MailSender {
                 result = await super.sendMail(mail);
             }
         } catch (err) {
-            if (err.campaignMessageErrorType === CampaignMessageErrorType.PERMANENT) {
+            if (err.campaignMessageErrorType === MessageErrorType.PERMANENT) {
                 await this.mongodb.collection(collectionName)
                     .updateOne({
                         _id: campaignMessageID
                     }, {
                         $set: {
-                            status: CampaignMessageStatus.FAILED,
+                            status: MessageStatus.FAILED,
                             updated: new Date()
                         }
                     });
@@ -65,7 +65,7 @@ class CampaignMailSender extends MailSender {
                         _id: campaignMessageID
                     }, {
                         $set: {
-                            status: CampaignMessageStatus.SCHEDULED,
+                            status: MessageStatus.SCHEDULED,
                             updated: new Date()
                         }
                     });

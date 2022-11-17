@@ -2,7 +2,7 @@
 
 const { MailSender } = require('./mail-sender');
 const log = require('../../log');
-const { CampaignMessageStatus } = require('../../../../shared/campaigns');
+const { MessageStatus } = require('../../../../shared/messages');
 
 /**
  * The class which inherits from MailSender and is responsible for sending mails of queued not campaign (API_TRANSACTIONAL, SUBSCRIPTION) messages.
@@ -20,7 +20,7 @@ class QueuedMailSender extends MailSender {
                 _id: queuedMessageId
             }, {
                 $set: {
-                    status: CampaignMessageStatus.SENT,
+                    status: MessageStatus.SENT,
                     updated: new Date()
                 }
             });
@@ -42,7 +42,7 @@ class QueuedMailSender extends MailSender {
                 _id: queuedMessageId
             }, {
                 $set: {
-                    status: CampaignMessageStatus.SCHEDULED,
+                    status: MessageStatus.SCHEDULED,
                     updated: new Date()
                 }
             });

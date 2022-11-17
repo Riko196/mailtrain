@@ -2,7 +2,7 @@
 
 const config = require('../../config');
 const log = require('../../log');
-const { CampaignMessageErrorType } = require('../../../../shared/campaigns');
+const { MessageErrorType } = require('../../../../shared/messages');
 const openpgpEncrypt = require('nodemailer-openpgp').openpgpEncrypt;
 const { getMongoDB } = require('../../mongodb');
 const { ZoneMTAType, MailerType } = require('../../../../shared/send-configurations');
@@ -251,9 +251,9 @@ class MailSender {
             return this.analyzeResponse(info);
         } catch (error) {
             if (error.responseCode >= 500) {
-                error.campaignMessageErrorType = CampaignMessageErrorType.PERMANENT;
+                error.campaignMessageErrorType = MessageErrorType.PERMANENT;
             } else {
-                error.campaignMessageErrorType = CampaignMessageErrorType.TRANSIENT;
+                error.campaignMessageErrorType = MessageErrorType.TRANSIENT;
             }
             throw error;
         }

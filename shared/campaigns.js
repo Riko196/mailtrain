@@ -44,27 +44,6 @@ const CampaignStatus = {
     MAX: 9
 };
 
-
-const CampaignMessageStatus = {
-    MIN: 0,
-
-    SENT: 1,
-    UNSUBSCRIBED: 2,
-    BOUNCED: 3,
-    COMPLAINED: 4,
-    SCHEDULED: 5,
-
-    FAILED: 6,
-
-    MAX: 6
-};
-
-const CampaignMessageErrorType = {
-  TRANSIENT: 0,
-  PERMANENT: 1
-};
-
-
 const campaignOverridables = ['from_name', 'from_email', 'reply_to'];
 
 function getSendConfigurationPermissionRequiredForSend(campaign, sendConfiguration) {
@@ -97,7 +76,5 @@ module.exports = {
     CampaignType,
     CampaignStatus,
     campaignOverridables,
-    CampaignMessageStatus,
-    CampaignMessageErrorType,
     getSendConfigurationPermissionRequiredForSend
 };

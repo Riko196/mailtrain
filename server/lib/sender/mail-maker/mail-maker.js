@@ -2,7 +2,8 @@
 
 const log = require('../../log');
 const links = require('../../../models/links');
-const { CampaignSource, CampaignMessageErrorType } = require('../../../../shared/campaigns');
+const { CampaignSource } = require('../../../../shared/campaigns');
+const { MessageErrorType } = require('../../../../shared/messages');
 const tools = require('../../tools');
 const htmlToText = require('html-to-text');
 const request = require('request-promise');
@@ -54,9 +55,9 @@ class MailMaker {
             if (response.statusCode !== 200) {
                 const statusError = new Error(`Received status code ${response.statusCode} from ${sourceUrl}`);
                 if (response.statusCode >= 500) {
-                    statusError.campaignMessageErrorType = CampaignMessageErrorType.PERMANENT;
+                    statusError.campaignMessageErrorType = MessageErrorType.PERMANENT;
                 } else {
-                    statusError.campaignMessageErrorType = CampaignMessageErrorType.TRANSIENT;
+                    statusError.campaignMessageErrorType = MessageErrorType.TRANSIENT;
                 }
                 throw statusError;
             }

@@ -12,7 +12,8 @@ const namespaceHelpers = require('../lib/namespace-helpers');
 const files = require('./files');
 const templates = require('./templates');
 const { allTagLanguages } = require('../../shared/templates');
-const { CampaignMessageStatus, CampaignStatus, CampaignSource, CampaignType, getSendConfigurationPermissionRequiredForSend } = require('../../shared/campaigns');
+const { CampaignStatus, CampaignSource, CampaignType, getSendConfigurationPermissionRequiredForSend } = require('../../shared/campaigns');
+const { MessageStatus } = require('../../shared/messages');
 const sendConfigurations = require('./send-configurations');
 const triggers = require('./triggers');
 const { SubscriptionStatus } = require('../../shared/lists');
@@ -403,8 +404,8 @@ async function getByIdTx(tx, context, id, withPermissions = true, content = Cont
 
         const totalRes = await tx('campaign_messages')
             .where({campaign: id})
-            .whereIn('status', [CampaignMessageStatus.SCHEDULED, CampaignMessageStatus.SENT,
-                CampaignMessageStatus.COMPLAINED, CampaignMessageStatus.UNSUBSCRIBED, CampaignMessageStatus.BOUNCED])
+            .whereIn('status', [MessageStatus.SCHEDULED, MessageStatus.SENT,
+                MessageStatus.COMPLAINED, MessageStatus.UNSUBSCRIBED, MessageStatus.BOUNCED])
             .count('* as count').first();
 
         entity.total = totalRes.count;
@@ -769,14 +770,14 @@ async function getMessageByResponseId(responseId) {
 }
 
 const statusFieldMapping = new Map();
-statusFieldMapping.set(CampaignMessageStatus.UNSUBSCRIBED, 'unsubscribed');
-statusFieldMapping.set(CampaignMessageStatus.BOUNCED, 'bounced');
-statusFieldMapping.set(CampaignMessageStatus.COMPLAINED, 'complained');
+statusFieldMapping.set(MessageStatus.UNSUBSCRIBED, 'unsubscribed');
+statusFieldMapping.set(MessageStatus.BOUNCED, 'bounced');
+statusFieldMapping.set(MessageStatus.COMPLAINED, 'complained');
 
 async function _changeStatusByMessageTx(tx, context, message, campaignMessageStatus) {
     enforce(statusFieldMapping.has(campaignMessageStatus));
 
-    if (message.status === CampaignMessageStatus.SENT) {
+    if (message.status === MessageStatus.SENT) {
         await shares.enforceEntityPermissionTx(tx, context, 'campaign', message.campaign, 'manageMessages');
 
         const statusField = statusFieldMapping.get(campaignMessageStatus);
@@ -809,9 +810,9 @@ async function changeStatusByCampaignCidAndSubscriptionIdTx(tx, context, campaig
 
 
 const campaignMessageStatusToSubscriptionStatusMapping = new Map();
-campaignMessageStatusToSubscriptionStatusMapping.set(CampaignMessageStatus.BOUNCED, SubscriptionStatus.BOUNCED);
-campaignMessageStatusToSubscriptionStatusMapping.set(CampaignMessageStatus.UNSUBSCRIBED, SubscriptionStatus.UNSUBSCRIBED);
-campaignMessageStatusToSubscriptionStatusMapping.set(CampaignMessageStatus.COMPLAINED, SubscriptionStatus.COMPLAINED);
+campaignMessageStatusToSubscriptionStatusMapping.set(MessageStatus.BOUNCED, SubscriptionStatus.BOUNCED);
+campaignMessageStatusToSubscriptionStatusMapping.set(MessageStatus.UNSUBSCRIBED, SubscriptionStatus.UNSUBSCRIBED);
+campaignMessageStatusToSubscriptionStatusMapping.set(MessageStatus.COMPLAINED, SubscriptionStatus.COMPLAINED);
 
 async function changeStatusByMessage(context, message, campaignMessageStatus, updateSubscription) {
     await knex.transaction(async tx => {
@@ -848,11 +849,11 @@ async function updateMessageResponse(context, id, campaign, status, response, re
 async function prepareCampaignMessages(campaignId) {
     const campaign = await getById(contextHelpers.getAdminContext(), campaignId, false);
 
-    await knex('campaign_messages').where({ campaign: campaignId, status: CampaignMessageStatus.SCHEDULED }).del();
+    await knex('campaign_messages').where({ campaign: campaignId, status: MessageStatus.SCHEDULED }).del();
     /* Synchronizing with MongoDB */
     await getMongoDB().collection('campaign_messages').deleteMany({
         campaign: campaignId,
-        status: CampaignMessageStatus.SCHEDULED
+        status: MessageStatus.SCHEDULED
     });
 
     for (const cpgList of campaign.lists) {
@@ -873,7 +874,7 @@ async function prepareCampaignMessages(campaignId) {
                 knex.raw('? AS campaign', [campaign.id]),
                 knex.raw('? AS list', [cpgList.list]),
                 knex.raw('? AS send_configuration', [campaign.send_configuration]),
-                knex.raw('? AS status', [CampaignMessageStatus.SCHEDULED])
+                knex.raw('? AS status', [MessageStatus.SCHEDULED])
             ])
             .toSQL().toNative();
 
@@ -887,7 +888,7 @@ async function prepareCampaignMessages(campaignId) {
                 chunkMessages = await tx('campaign_messages').where({
                     campaign: campaign.id,
                     list: cpgList.list,
-                    status: CampaignMessageStatus.SCHEDULED
+                    status: MessageStatus.SCHEDULED
                 }).orderBy('id', 'asc').offset(offset).limit(CHUNK_SIZE).map(message => {
                     message._id = message.id;
                     message.hashEmailPiece = hashToUint32(message.hash_email);
@@ -914,14 +915,14 @@ async function prepareCampaignMessages(campaignId) {
 async function getSuccessfullySentCampaignMessagesCount(campaignId) {
     return await knex('campaign_messages').where({ 
         campaign: campaignId,
-        status: CampaignMessageStatus.SENT
+        status: MessageStatus.SENT
     }).whereNot({ response: BLACKLISTED_RESPONSE.response }).count('* as count').first();
 }
 
 async function getBlacklistedCampaignMessagesCount(campaignId) {
     return await knex('campaign_messages').where({ 
         campaign: campaignId,
-        status: CampaignMessageStatus.SENT,
+        status: MessageStatus.SENT,
         response: BLACKLISTED_RESPONSE.response
     }).count('* as count').first();
 }
@@ -929,7 +930,7 @@ async function getBlacklistedCampaignMessagesCount(campaignId) {
 async function getSuccessfullySentCampaignMessagesCountMongoDB(campaignId) {
     return await getMongoDB().collection('campaign_messages').countDocuments({
         campaign: campaignId,
-        status: CampaignMessageStatus.SENT,
+        status: MessageStatus.SENT,
         response: { $nin: [null, BLACKLISTED_RESPONSE.response] }
     });
 }
@@ -937,7 +938,7 @@ async function getSuccessfullySentCampaignMessagesCountMongoDB(campaignId) {
 async function getBlacklistedCampaignMessagesCountMongoDB(campaignId) {
     return await getMongoDB().collection('campaign_messages').countDocuments({
         campaign: campaignId,
-        status: CampaignMessageStatus.SENT,
+        status: MessageStatus.SENT,
         response: BLACKLISTED_RESPONSE.response
     });
 }

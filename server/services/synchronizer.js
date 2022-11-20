@@ -49,7 +49,7 @@ class Synchronizer {
     /** 
      * Returns true if there is no available task.
      */
-    noTaskAvailable() {
+    noScheduledTask() {
         return !this.synchronizingPausingCampaigns.length &&
              !this.synchronizingScheduledCampaigns.length &&
              !this.synchronizingQueuedMessages.size;
@@ -63,6 +63,8 @@ class Synchronizer {
         log.verbose('Synchronizer', 'Starting loop...');
 
         while (!this.stopWorking) {
+            /* Variable that tells us whether there is some task from MongoDB for synchronizing */
+            this.noSynchronizingTask = true;
             try {
                 /* Mailtrain --> MongoDB */
                 await this.synchronizePausingCampaigns();
@@ -77,7 +79,7 @@ class Synchronizer {
                 /* MongoDB --> Mailtrain */
                 await this.synchronizeMessyMessagesFromMongoDB();
 
-                if (this.noTaskAvailable()) {
+                if (this.noScheduledTask() && this.noSynchronizingTask) {
                     await this.notifier.waitFor('taskAvailable');
                 }
             } catch(error) {
@@ -333,6 +335,8 @@ class Synchronizer {
             return;
         }
 
+        this.noSynchronizingTask = false;
+
         log.verbose('Synchronizer', `Received ${sentCampaignMessages.length} sent messages from MongoDB!`);
         for (const sentCampaignMessage of sentCampaignMessages) {
             const { _id, campaign, send_configuration, status, response, responseId, updated } = sentCampaignMessage;
@@ -356,6 +360,8 @@ class Synchronizer {
             return;
         }
 
+        this.noSynchronizingTask = false;
+
         log.verbose('Synchronizer', `Received ${failedCampaignMessages.length} failed messages from MongoDB!`);
         for (const failedCampaignMessage of failedCampaignMessages) {
             const { _id, campaign, status, response, responseId } = failedCampaignMessage;
@@ -375,6 +381,12 @@ class Synchronizer {
             status: { $in: [MessageStatus.SENT, MessageStatus.FAILED] },
             response: { $ne: null }
         }).limit(CHUNK_SIZE).toArray();
+
+        if (queuedMessages.length === 0) {
+            return;
+        }
+
+        this.noSynchronizingTask = false;
 
         for (const queuedMessage of queuedMessages) {
             if (queuedMessage.attachments) {

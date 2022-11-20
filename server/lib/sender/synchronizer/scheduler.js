@@ -95,12 +95,12 @@ class Scheduler {
                 .groupBy('send_configuration')
                 .select(['send_configuration']);
 
-            rows.forEach(row => {
+            for (const row of rows) {
                 const sendConfigurationId = row.send_configuration;
                 this.sendConfigurationMessageQueue.set(sendConfigurationId, []);
                 /* noinspection JSIgnoredPromiseFromCall */
-                this.prepareQueuedBySendConfiguration(sendConfigurationId);
-            }, this);
+                await this.prepareQueuedBySendConfiguration(sendConfigurationId);
+            }
         } catch (error) {
             log.error('Scheduler', `Scheduling queued messages failed with error: ${error.message}`);
             log.verbose(error.stack);

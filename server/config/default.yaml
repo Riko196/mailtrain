@@ -98,7 +98,7 @@ www:
   # HTTP port to listen on for public requests (campaign recipients)
   publicPort: 3004
   # HTTP ports to listen on for high-available public requests for linked files (campaign recipients)
-  haPublicPorts: [3005, 3006, 3007, 3008, 3009, 3010]
+  haPublicPorts: [3005]
   # HTTP interface to listen on
   host: 0.0.0.0
   # URL base for trusted urls (logged-in users). It must be absolute (starting with http:// or https://). If Mailtrain is served on

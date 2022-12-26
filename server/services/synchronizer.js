@@ -96,7 +96,7 @@ class Synchronizer {
      * Called by client when he does some campaign operations and we don't want to wait for the next periodic check.
      */
     async callImmediateScheduleCheck() {
-        this.scheduler.periodicCheck();
+        this.scheduler.scheduleCheck();
     }
 
     /**
@@ -114,10 +114,10 @@ class Synchronizer {
 
         if (campaignId) {
             log.verbose('Synchronizer', `New task with pausing campaignId: ${campaignId}`);
+            await campaigns.paused(contextHelpers.getAdminContext(), campaignId);
             /* We rather delete a task from MongoDB although we have only paused it because it will be scheduled again if a client presses continue  */
             await this.mongodb.collection('tasks').deleteMany({ 'campaign.id': campaignId });
             log.verbose('Synchronizer', `Pausing campaignId: ${campaignId} successfully synchronized with MongoDB!`);
-            await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.PAUSED);
         }
     }
 
@@ -142,9 +142,10 @@ class Synchronizer {
                 campaignId
             });
 
+            /* Set campaign status to SENDING and insert task into the MongoDB database */
+            await campaigns.send(contextHelpers.getAdminContext(), campaignId);
             await this.mongodb.collection('tasks').insertOne(campaignData);
             log.verbose('Synchronizer', `New task with campaignId: ${campaignId} successfully sent to MongoDB!`);
-            await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.SENDING);
         }
     }
 
@@ -220,9 +221,9 @@ class Synchronizer {
             if (sendingCampaign.withErrors) {
                 log.error('Synchronizer', `Error occurred during sending campaign with id: ${campaignId}, it is postponing!`);
                 this.scheduler.postponeSendConfigurationId(sendingCampaign.sendConfiguration.id, sendingCampaign.withErrorsUpdated);
-                await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
                 /* Set problematic campaign as SCHEDULED and Scheduler will schedule it after currently set postponed period  */
-                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.SCHEDULED);
+                await campaigns.reschedule(contextHelpers.getAdminContext(), campaignId);
+                await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
                 continue;
             }
 
@@ -233,9 +234,9 @@ class Synchronizer {
 
             if (!remainingCampaignMessages) {
                 log.verbose('Synchronizer', `Campaign with id: ${campaignId} is finished!`);
-                await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
                 /* We rather call also this update campaign status although campaign is already set as FINISHED (there could appear some problem with delivered messages) */
-                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
+                await campaigns.finish(contextHelpers.getAdminContext(), campaignId);
+                await this.mongodb.collection('tasks').deleteMany({ _id: sendingCampaign._id });
             }
         }
     }
@@ -309,7 +310,7 @@ class Synchronizer {
 
             /* If all messages are sent then update campaign status */
             if (blacklisted + delivered === allMessages.count) {
-                await campaigns.updateCampaignStatus(contextHelpers.getAdminContext(), campaignId, CampaignStatus.FINISHED);
+                await campaigns.finish(contextHelpers.getAdminContext(), campaignId);
             }
         }
     }
@@ -353,7 +354,7 @@ class Synchronizer {
      */
     async synchronizeFailedCampaignMessagesFromMongoDB() {
         const failedCampaignMessages = await this.mongodb.collection('campaign_messages').find({
-            status: MessageStatus.FAILED
+            status: { $in: [MessageStatus.BOUNCED, MessageStatus.COMPLAINED, MessageStatus.FAILED] }
         }).limit(CHUNK_SIZE).toArray();
 
         if (failedCampaignMessages.length === 0) {
@@ -517,7 +518,7 @@ class Synchronizer {
             }, {  
                 $match: {
                     $and: [ 
-                        { status: { $in: [MessageStatus.SENT, MessageStatus.FAILED] }, },
+                        { status: { $ne: MessageStatus.SCHEDULED }, },
                         { response: null },
                         { updatedDifference: { $gte: MESSY_DIFFERENCE } }
                     ] 

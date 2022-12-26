@@ -298,7 +298,7 @@ class Scheduler {
             }
 
             next = Date.now() + backoff * 1000;
-            setTimeout(this.periodicCheck.bind(this), backoff * 1000);
+            setTimeout(this.scheduleCheck.bind(this), backoff * 1000);
         }
 
         sendConfigurationStatus.postponeTill = next;

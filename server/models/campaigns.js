@@ -825,19 +825,6 @@ async function changeStatusByMessage(context, message, campaignMessageStatus, up
     });
 }
 
-async function updateCampaignStatus(context, campaignId, status) {
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'campaign', campaignId, 'edit');
-
-        await tx('campaigns').where('id', campaignId).update({ status });
-        await activityLog.logEntityActivity('campaign',
-            CampaignActivityType.STATUS_CHANGE,
-            campaignId,
-            { status }
-        );
-    });
-}
-
 async function updateMessageResponse(context, id, campaign, status, response, response_id) {
     await knex.transaction(async tx => {
         await shares.enforceEntityPermissionTx(tx, context, 'campaign', campaign, 'manageMessages');
@@ -990,22 +977,37 @@ async function _changeStatus(context, campaignId, permittedCurrentStates, newSta
             }
         }
 
-        /* TODO Synchronize with MongoDB */
         await tx('campaigns').where('id', campaignId).update(updateData);
 
         await activityLog.logEntityActivity('campaign', CampaignActivityType.STATUS_CHANGE, campaignId, {status: newState});
     });
-
-    sender.scheduleCheck();
 }
 
 
 async function start(context, campaignId, extraData) {
     await _changeStatus(context, campaignId, [CampaignStatus.IDLE, CampaignStatus.SCHEDULED, CampaignStatus.PAUSED, CampaignStatus.FINISHED], CampaignStatus.SCHEDULED, 'Cannot start campaign until it is in IDLE, PAUSED, or FINISHED state', extraData);
+    sender.scheduleCheck();
+}
+
+async function send(context, campaignId) {
+    await _changeStatus(context, campaignId, [CampaignStatus.SENDING, CampaignStatus.SYNCHRONIZING], CampaignStatus.SENDING, 'Cannot start sending campaign until it is in SYNCHRONIZING state');
 }
 
 async function stop(context, campaignId) {
     await _changeStatus(context, campaignId, [CampaignStatus.SCHEDULED, CampaignStatus.SENDING, CampaignStatus.SYNCHRONIZING], [CampaignStatus.IDLE, CampaignStatus.PAUSING, CampaignStatus.PAUSING], 'Cannot stop campaign until it is in SCHEDULED, SENDING, or SYNCHRONIZING state');
+    sender.scheduleCheck();
+}
+
+async function paused(context, campaignId) {
+    await _changeStatus(context, campaignId, [CampaignStatus.PAUSING, CampaignStatus.PAUSED], CampaignStatus.PAUSED, 'Cannot set paused status to campaign until it is in PAUSING state');
+}
+
+async function finish(context, campaignId) {
+    await _changeStatus(context, campaignId, [CampaignStatus.SENDING, CampaignStatus.FINISHED], CampaignStatus.FINISHED, 'Cannot finish campaign until it is in SENDING state');
+}
+
+async function reschedule(context, campaignId) {
+    await _changeStatus(context, campaignId, [CampaignStatus.SCHEDULED, CampaignStatus.SENDING], CampaignStatus.SCHEDULED, 'Cannot reschedule campaign until it is in SENDING state');
 }
 
 async function reset(context, campaignId) {
@@ -1045,10 +1047,12 @@ async function reset(context, campaignId) {
 
 async function enable(context, campaignId) {
     await _changeStatus(context, campaignId, [CampaignStatus.INACTIVE], CampaignStatus.ACTIVE, 'Cannot enable campaign unless it is in INACTIVE state');
+    sender.scheduleCheck();
 }
 
 async function disable(context, campaignId) {
     await _changeStatus(context, campaignId, [CampaignStatus.ACTIVE], CampaignStatus.INACTIVE, 'Cannot disable campaign unless it is in ACTIVE state');
+    sender.scheduleCheck();
 }
 
 
@@ -1234,7 +1238,6 @@ module.exports.getMessageByResponseId = getMessageByResponseId;
 
 module.exports.changeStatusByCampaignCidAndSubscriptionIdTx = changeStatusByCampaignCidAndSubscriptionIdTx;
 module.exports.changeStatusByMessage = changeStatusByMessage;
-module.exports.updateCampaignStatus = updateCampaignStatus;
 module.exports.updateMessageResponse = updateMessageResponse;
 
 module.exports.prepareCampaignMessages = prepareCampaignMessages;
@@ -1244,7 +1247,11 @@ module.exports.getSuccessfullySentCampaignMessagesCountMongoDB = getSuccessfully
 module.exports.getBlacklistedCampaignMessagesCountMongoDB = getBlacklistedCampaignMessagesCountMongoDB;
 
 module.exports.start = start;
+module.exports.send = send;
 module.exports.stop = stop;
+module.exports.paused = paused;
+module.exports.finish = finish;
+module.exports.reschedule = reschedule;
 module.exports.reset = reset;
 module.exports.enable = enable;
 module.exports.disable = disable;

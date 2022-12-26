@@ -260,6 +260,7 @@ class SenderWorker {
         if (campaignData.withErrors === undefined || campaignData.withErrors !== withErrors) {
             await this.mongodb.collection('tasks').updateOne({ _id: campaignData._id }, { $set: { withErrors, withErrorsUpdated: new Date() } });
         }
+        
         await this.insertLinksIfNotExist(campaignMailMaker.links);
     }
 

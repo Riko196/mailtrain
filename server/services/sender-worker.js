@@ -30,7 +30,7 @@ const CHUNK_SIZE = 100;
 const SLEEP_PERIOD = { min: 10000, max: 30000 };
 
 /**
- * The main component of distributed system for making and sending mails.
+ * The main component of distributed system for making and sending e-mails.
  */
 class SenderWorker {
     constructor(senderWorkerInfo) {
@@ -56,7 +56,9 @@ class SenderWorker {
         setImmediate(this.senderWorkerLoop.bind(this));
     }
 
-    /* Wait until your substitute finish if you are substituted and then update yourself to WORKING state. */
+    /**
+     *  Wait until your substitute finish if you are substituted and then update yourself to WORKING state. 
+     */
     async waitAndPrepareForTheStart() {
         let preparedWorker = null;
         while (!preparedWorker) {
@@ -86,7 +88,9 @@ class SenderWorker {
         this.state.value = SenderWorkerState.WORKING;
     }
 
-    /* Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends. */
+    /** 
+     * Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends.
+     */
     async senderWorkerLoop() {
         if (workerSynchronizationIsSet()) {
             /* Wait until you can start and then start worker loop (state === WORKING and substitute === null) */
@@ -126,7 +130,14 @@ class SenderWorker {
         process.exit(0);
     }
 
-    /* Get all subscribers from messages to speed up the whole sending. */
+    /**
+     * Get all subscribers from messages to speed up the whole sending.
+     * 
+     * @argument messages - chunk of messages from which we want to select particular subscribers for whom these messages are intended
+     * 
+     * @returns map created from messages list where key represents 'listID:subscription' and the value represents particular subscriber
+     *  with all needed data selected from the database
+     */
     async getSubscribers(messages) {
         /* listID -> subscribersID */
         const listMap = new Map();
@@ -153,7 +164,13 @@ class SenderWorker {
         return subscribers;
     }
 
-    /* Get all blacklisted subscribers from subscribers to speed up the whole sending. */
+    /**
+     * Get all blacklisted subscribers from subscribers to speed up the whole sending. 
+     * 
+     * @argument subsribers - chunk of subscribers from which we want to select blacklisted subscribers
+     * 
+     * @returns list of strings that represent e-mail addresses of all blacklisted subscribers
+     */
     async getBlacklisted(subscribers) {
         /* Get all blacklisted subscribers from this chunk */
         const listBlacklisted = await this.mongodb.collection('blacklist').find({
@@ -163,7 +180,11 @@ class SenderWorker {
         return listBlacklisted.map(blacklisted => blacklisted.email);
     }
 
-    /* Insert if links not exist in MongoDB which were found during making mails. */
+    /**
+     * Insert if links not exist in MongoDB which were found during making e-mails. 
+     * 
+     * @argument links - list of links for selecting
+     */
     async insertLinksIfNotExist(links) {
         const queries = [];
 
@@ -186,9 +207,11 @@ class SenderWorker {
         }
     }
 
-    /*
+    /**
      * Check all tasks of sending campaigns (REGULAR, RSS) and if it is not finished,
      * then send another remaining chunk of mails.
+     * 
+     * @argument range - hash range from which we will select scheduled queued messages
      */
     async checkCampaignMessages(range){
         const taskList = await this.mongodb.collection('tasks').find({
@@ -196,7 +219,6 @@ class SenderWorker {
         }).toArray();
 
         // log.verbose(`SenderWorker:${this.workerId}`, `Received taskList: ${taskList}`);
-
         for (const task of taskList) {
             /* Skip tasks with non-working send configuration */
             if (task.withErrors) {
@@ -219,7 +241,12 @@ class SenderWorker {
         };
     };
 
-    /* From chunk of campaign messages make mails and send them to SMTP server. */
+    /**
+     *  From chunk of campaign messages make mails and send them to SMTP server. 
+     * 
+     * @argument campaignData - common data for the whole chunk of campaign messages 
+     * @argument campaignMessages - chunk of campaign messages prepared for making and sending e-mails
+     */
     async processCampaignMessages(campaignData, campaignMessages) {
         //log.verbose(`SenderWorker:${this.workerId}`, 'Start to processing chunk of campaign messages ...');
         const campaignId = campaignData.campaign.id;
@@ -264,9 +291,11 @@ class SenderWorker {
         await this.insertLinksIfNotExist(campaignMailMaker.links);
     }
 
-    /*
+    /**
      * Check queued messages (TRIGGERED, SUBSCRIPTION, TRANSACTIONAL, TEST) and if the queue
      * is not empty then send another remaining chunk of mails.
+     * 
+     * @argument range - hash range from which we will select scheduled queued messages
      */
     async checkQueuedMessages(range){
         /* Processing queued campaign messages (TRIGGERED, TEST) */
@@ -277,9 +306,8 @@ class SenderWorker {
         }).limit(CHUNK_SIZE).toArray();
 
         for (const queuedCampaignMessage of chunkQueuedCampaignMessages) {
-            await this.processCampaignMessages(queuedCampaignMessage, chunkQueuedCampaignMessages);
+            await this.processCampaignMessages(queuedCampaignMessage, [queuedCampaignMessage]);
         }
-
 
         /* Processing queued not campaign messages (API_TRANSACTIONAL, SUBSCRIPTION) */
         const chunkQueuedMessages = await this.mongodb.collection('queued').find({
@@ -294,7 +322,11 @@ class SenderWorker {
         }
     };
 
-    /* From chunk of queued messages make mails and send them to SMTP server. */
+    /**
+     * From chunk of queued messages make mails and send them to SMTP server.
+     * 
+     * @argument queuedMessages - chunk of queued messages prepared for making and sending e-mails
+     */
     async processQueuedMessages(queuedMessages) {
         log.verbose(`SenderWorker:${this.workerId}`, 'Start to processing queued messages ...');
         for (const queuedMessage of queuedMessages) {
@@ -336,7 +368,9 @@ class SenderWorker {
     }
 }
 
-/* The method which is called as first when the worker process is spawned by mailtrain. */
+/**
+ * The method which is called as first when the worker process is spawned by Mailtrain.
+ */
 async function spawnSenderWorker() {
     /* Connect to the MongoDB and accomplish setup */
     await connectToMongoDB();

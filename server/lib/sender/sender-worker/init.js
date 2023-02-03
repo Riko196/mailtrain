@@ -1,6 +1,7 @@
 'use strict';
 
 const config = require('../../config');
+const log = require('../../log');
 const { getMongoDB, getNewTransactionSession, transactionOptions } = require('../../mongodb');
 
 /** It defines range of e-mail hash values according to which the workers divide their messages for sending. */
@@ -21,14 +22,18 @@ function workerSynchronizationIsSet() {
 }
 
 /**
- * Reset sender_workers collection.
+ * Init sender_workers collection if it has not been initialized yet.
  */
- async function resetSenderWorkersCollection() {
-    await getMongoDB().collection('sender_workers').deleteMany({});
-
+ async function initSenderWorkersCollection() {
     const maxWorkers = config.sender.workers;
-    for (let id = 0; id < maxWorkers; id++) {
-        await getMongoDB().collection('sender_workers').insertOne(computeSenderWorkerInit(id, SenderWorkerState.SYNCHRONIZING, maxWorkers));
+    const countOfWorkers = await getMongoDB().collection('sender_workers').countDocuments({});
+
+    if (countOfWorkers !== maxWorkers) {
+        log.info('Sender', 'Initializing sender_workers collection...');
+        await getMongoDB().collection('sender_workers').deleteMany({});
+        for (let id = 0; id < maxWorkers; id++) {
+            await getMongoDB().collection('sender_workers').insertOne(computeSenderWorkerInit(id, SenderWorkerState.SYNCHRONIZING, maxWorkers));
+        }
     }
 };
 
@@ -95,6 +100,6 @@ function senderWorkerInit(workerId, maxWorkers) {
 
 module.exports.SenderWorkerState = SenderWorkerState;
 module.exports.workerSynchronizationIsSet = workerSynchronizationIsSet;
-module.exports.resetSenderWorkersCollection = resetSenderWorkersCollection;
+module.exports.initSenderWorkersCollection = initSenderWorkersCollection;
 module.exports.senderWorkerSynchronizedInit = senderWorkerSynchronizedInit;
 module.exports.senderWorkerInit = senderWorkerInit;

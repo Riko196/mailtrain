@@ -5,16 +5,17 @@ const bluebird = require('bluebird');
 const config = require('../config');
 const fork = require('../fork').fork;
 const knex = require('../knex');
-const { getMongoDB } = require('../mongodb');
 const log = require('../log');
 const builtinZoneMta = require('../builtin-zone-mta');
 const { CampaignStatus } = require('../../../shared/campaigns');
-const { resetSenderWorkersCollection } = require('./sender-worker/init');
+const { initSenderWorkersCollection } = require('./sender-worker/init');
 
 let messageTid = 0;
 let synchronizerProcess;
 
-/* Setup synchronizing camapaigns to scheduled status again and spawn Synchronizer */
+/**
+ *  Setup synchronizing camapaigns to scheduled status again and spawn Synchronizer.
+ */
 async function spawnSynchronizer() {
     log.verbose('Sender', 'Spawning synchronizer process');
 
@@ -45,6 +46,9 @@ async function spawnSynchronizer() {
     });
 }
 
+/**
+ *  Callback, used as an immediate schedule check by QueryExecutor.
+ */
 function scheduleCheck() {
     synchronizerProcess.send({
         type: 'schedule-check',
@@ -54,7 +58,13 @@ function scheduleCheck() {
     messageTid++;
 }
 
-/* Spawn sender worker */
+/**
+ * Spawn sender worker.
+ * 
+ * @argument workerId - Id of worker for spawning
+ * 
+ * @returns promise result of spawning
+ */
 async function spawnWorker(workerId) {
     return await new Promise((resolve, reject) => {
         log.verbose('Sender', `Spawning worker process ${workerId}`);
@@ -84,16 +94,26 @@ async function spawnWorker(workerId) {
     });
 }
 
-/* Spawn Sender component (Synchronizer + all Workers) */
+/**
+ * Spawn Sender component (Synchronizer + all Workers).
+ * 
+ * @argument callback - function that represents bluebird.promisify
+ * 
+ * @returns callback result 
+ */
 async function spawn(callback) {
     await spawnSynchronizer();
+
+    /* 
+     * Init sender_workers collection before spawning if it has not been initialized yet 
+     * (it has impact iff workerSynchronization is set, otherwise it is redundant call)
+     */
+    await initSenderWorkersCollection();
 
     /* Spawn all sender workers if mailtrain is in centralized mode */
     if (config.mode === 'centralized') {
         const spawnWorkerFutures = [];
 
-        /* Reset sender_workers collection before spawning (it has impact iff workerSynchronization is set, otherwise it is redundant call) */
-        await resetSenderWorkersCollection();
         for (let workerId = 0; workerId < config.sender.workers; workerId++) {
             spawnWorkerFutures.push(spawnWorker(workerId));
         }

@@ -869,7 +869,7 @@ async function prepareCampaignMessages(campaignId) {
 
         /* Synchronizing with MongoDB */
         await knex.transaction(async tx => {
-            const CHUNK_SIZE = 1000;
+            const CHUNK_SIZE = 1000000;
             let chunkMessages = [], offset = 0;
             do {
                 chunkMessages = await tx('campaign_messages').where({

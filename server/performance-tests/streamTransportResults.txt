@@ -1,5 +1,0 @@
-20 workers:
-Real time: 240s
-Average computing time per one worker: 235.876s
-Average time for sending email: 10.203s
-Sent emails: 44846

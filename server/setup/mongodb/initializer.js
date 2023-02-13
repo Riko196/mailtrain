@@ -60,6 +60,17 @@ async function synchronizeMongoDbWithMySQL() {
             }
         }
 
+        /* Synchronizing files_campaign_file */
+        log.info('Synchronizer', 'Synchronizing files_campaign_file collection...');
+        const filesCampaignFile = await knex('files_campaign_file').select('*');
+        if (filesCampaignFile.length) {
+            filesCampaignFile.map(file => {
+                file._id = file.id;
+                delete file.id;
+            });
+            await mongodb.collection('files_campaign_file').insertMany(filesCampaignFile);
+        }
+        
         log.info('Synchronizer', 'MongoDB database successfully synchronized with MySQL database!');
     } catch(error) {
         log.error('Synchronizer', 'Error: ', error);

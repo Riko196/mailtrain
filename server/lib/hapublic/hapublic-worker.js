@@ -5,7 +5,7 @@ const { startHTTPServer } = require('../http-server');
 const config = require('../config');
 
 /* The port on which will HAPUBLIC worker run. */
-const workerPort = process.env.WORKER_PORT;
+const workerPort = process.env.HAPUBLIC_WORKER_PORT;
 
 /* Spawn HAPUBLIC worker which represents HTTP unit server managed by HAProxy for sending linked files. */
 async function spawnHapublicWorker() {
@@ -19,9 +19,11 @@ async function spawnHapublicWorker() {
         process.title = config.title + ': haPublicWorker';
     }
 
-    process.send({
-        type: 'haPublicWorker-started'
-    });
+    if (config.mode === 'centralized') {
+        process.send({
+            type: 'haPublicWorker-started'
+        });
+    }
 
     appBuilder.setReady();
 }

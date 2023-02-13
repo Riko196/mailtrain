@@ -111,6 +111,8 @@ class Scheduler {
 
     /**
      * Prepare scheduled queued messages for Synchronizer.
+     * 
+     * @argument sendConfigurationId
      */
     async prepareQueuedBySendConfiguration(sendConfigurationId) {
         const msgQueue = this.sendConfigurationMessageQueue.get(sendConfigurationId);
@@ -224,6 +226,8 @@ class Scheduler {
 
     /**
      * Prepare scheduled campaign for Synchronizer.
+     * 
+     * @argument campaignId - Id of campaign for preparing
      */
     async prepareCampaign(campaignId) {
         try {
@@ -250,7 +254,9 @@ class Scheduler {
     }
 
     /**
-     * Get sendConfiguration status.
+     * @argument sendConfigurationId - Id of sendConfiguration queried for status
+     * 
+     * @returns sendConfiguration status.
      */
     getSendConfigurationStatus(sendConfigurationId) {
         let status = this.sendConfigurationStatuses[sendConfigurationId];
@@ -267,7 +273,7 @@ class Scheduler {
     }
 
     /**
-     * Get all postponed sendConfiguration Ids.
+     * @returns all postponed sendConfiguration Ids.
      */
     getPostponedSendConfigurationIds() {
         const result = [];
@@ -284,6 +290,9 @@ class Scheduler {
 
     /**
      * Set new retry count for processed messages.
+     * 
+     * @argument sendConfigurationStatus - status of sendConfiguration needed to be set
+     * @argument newRetryCount - order of the next retry count
      */
     setSendConfigurationRetryCount(sendConfigurationStatus, newRetryCount) {
         sendConfigurationStatus.retryCount = newRetryCount;
@@ -306,6 +315,9 @@ class Scheduler {
 
     /**
      * Method called by Synchronizer when some new chunk of queued messages or campaigns are processed.
+     * 
+     * @argument sendConfigurationId - Id of sendConfiguration needed to be postponed
+     * @argument lastUpdate - timestamp of the last postpone of the given sendConfiguration
      */
     postponeSendConfigurationId(sendConfigurationId, lastUpdate) {
         const sendConfigurationStatus = this.getSendConfigurationStatus(sendConfigurationId);
@@ -316,6 +328,9 @@ class Scheduler {
 
     /**
      * Method called by Synchronizer when some new chunk of queued messages or campaigns are successfully sent and we want to reset SendConfigurationRetryCount.
+     * 
+     * @argument sendConfigurationId - Id of sendConfiguration needed to reset retry count
+     * @argument lastUpdate - timestamp of the last retry count update of the given sendConfiguration
      */
     resetSendConfigurationRetryCount(sendConfigurationId, lastUpdate) {
         if (this.sendConfigurationStatuses[sendConfigurationId] && this.sendConfigurationStatuses[sendConfigurationId].postponeTill <= lastUpdate.getTime()) {
@@ -324,7 +339,7 @@ class Scheduler {
     }
 
     /**
-     * Get all expiration thresholds for all kind of queued messages which are defined in the main config file.
+     * @returns all expiration thresholds for all kind of queued messages which are defined in the main config file.
      */
     getExpirationThresholds() {
         const now = Date.now();

@@ -17,7 +17,7 @@ async function spawnWorker(workerPort) {
             cwd: path.join(__dirname, '..', '..'),
             env: {
                 NODE_ENV: process.env.NODE_ENV,
-                WORKER_PORT: workerPort
+                HAPUBLIC_WORKER_PORT: workerPort
             }
         });
 

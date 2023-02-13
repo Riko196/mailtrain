@@ -21,6 +21,11 @@ const { MessageStatus } = require('../../../../shared/messages');
  * centralized database. Used by Synchronizer.
  */
 class DataCollector {
+    /**
+     * Collects all data for some campaign or queued message and stores it in the data field.
+     * 
+     * @argument query - object with the query data 
+     */
     async collectData(query) {
         // log.verbose('DataCollector', `Starting collecting data for campaign with ID ${query.campaignId}`);
         /* Result data */
@@ -44,7 +49,8 @@ class DataCollector {
             } else if (this.isQueuedNotCampaignMessage(type)) {
                 this.data.isMassMail = false;
 
-                await this.collectRSSSendConfiguration(tx, query);
+                this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(),
+                    query.sendConfigurationId, false, true);
             } else {
                 enforce(false);
             }
@@ -64,6 +70,12 @@ class DataCollector {
         return this.data;
     }
 
+    /**
+     * Collects basic campaign data and stores it in the data field.
+     * 
+     * @argument tx - running transaction
+     * @argument query - object with the query data (camapignId)
+     */
     async collectCampaign(tx, query) {
         if (query.campaign) {
             this.data.campaign = query.campaign;
@@ -76,6 +88,12 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected campaign data: ${JSON.stringify(this.data.campaign, null, ' ')}`);
     }
 
+    /**
+     * Collects send configuration data and stores it in the data field.
+     * 
+     * @argument tx - running transaction
+     * @argument query - object with the query data (sendConfigurationId)
+     */
     async collectSendConfiguration(tx, query) {
         if (query.sendConfigurationId) {
             this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(),
@@ -87,16 +105,17 @@ class DataCollector {
             enforce(false);
         }
 
-        this.data.useVerp = config.verp.enabled && datasendConfiguration.verp_hostname;
+        this.data.useVerp = config.verp.enabled && this.data.sendConfiguration.verp_hostname;
         this.data.useVerpSenderHeader = this.data.useVerp && !this.data.sendConfiguration.verp_disable_sender_header;
         // log.verbose('DataCollector', `Collected sendConfiguration data: ${JSON.stringify(this.data.sendConfiguration, null, ' ')}`);
     }
 
-    async collectRSSSendConfiguration(tx, query) {
-        this.data.sendConfiguration = await sendConfigurations.getByIdTx(tx, contextHelpers.getAdminContext(), query.sendConfigurationId, false, true);
-        // log.verbose('DataCollector', `Collected RSS sendConfiguration data: ${JSON.stringify(this.data.sendConfiguration, null, ' ')}`);
-    }
-
+    /**
+     * Collects all campaign lists and their additional fields, then stores them in the data field.
+     * 
+     * @argument tx - running transaction
+     * @argument query - object with the query data (lists Ids)
+     */
     async collectLists(tx, query) {
         const listsById = new Map(); // listId -> list
         const listsByCid = new Map(); // listCid -> list
@@ -134,6 +153,12 @@ class DataCollector {
         this.data.listsFieldsGrouped = listsFieldsGrouped;
     }
 
+    /**
+     * Collects e-mail attachment files and stores it in the data field.
+     * 
+     * @argument tx - running transaction
+     * @argument query - object with the query data (campaignId or attachmentIds)
+     */
     async collectEmailAttachments(tx, query) {
         if (query.attachments) {
             this.data.attachments = query.attachments;
@@ -155,6 +180,12 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected attachments data: ${JSON.stringify(this.data.attachments, null, ' ')}`);
     }
 
+    /**
+     * Collects e-mail template and stores it in the data field.
+     * 
+     * @argument tx - running transaction
+     * @argument query - object with the query data (e-mail template HTML)
+     */
     async collectEmailTemplate(tx, query) {
         if (query.renderedHtml !== undefined) {
             this.data.renderedHtml = query.renderedHtml;
@@ -183,6 +214,11 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected template data: ${JSON.stringify(this.data.template, null, ' ')}`);
     }
 
+    /**
+     * Collects all setting data and stores them in the data field.
+     * 
+     * @argument query - object with the setting query data
+     */
     async collectSetting(query) {
         if (query.rssEntry !== undefined) {
             this.data.rssEntry = query.rssEntry;
@@ -203,6 +239,11 @@ class DataCollector {
         // log.verbose('DataCollector', `Collected settings data: ${JSON.stringify(this.data.configItems, null, ' ')}`);
     }
 
+    /**
+     * Collects all additional queued data and stores them in the data field.
+     * 
+     * @argument query - object with the additional query data
+     */
     collectAdditionalQueuedData(query) {
         this.data.type = query.type;
         this.data.status = MessageStatus.SCHEDULED;
@@ -218,19 +259,39 @@ class DataCollector {
         this.data.encryptionKeys = query.encryptionKeys;
     }
 
+    /**
+     * @argument messageType - type of message 
+     * 
+     * @returns whether messageType represents type of campaign and not queued message.
+     */
     isCampaignMessage(messageType) {
         return messageType === MessageType.REGULAR;
     }
 
+    /**
+     * @argument messageType - type of message 
+     * 
+     * @returns whether messageType represents type of any queued message.
+     */
     isQueuedMessage(messageType) {
         return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST ||
             messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
     }
 
+    /**
+     * @argument messageType - type of message 
+     * 
+     * @returns whether messageType represents type of queued and campaign message.
+     */
     isQueuedCampaignMessage(messageType) {
         return (messageType === MessageType.TRIGGERED || messageType === MessageType.TEST);
     }
 
+    /**
+     * @argument messageType - type of message 
+     * 
+     * @returns whether messageType represents type of queued and not campaign message.
+     */
     isQueuedNotCampaignMessage(messageType) {
         return (messageType === MessageType.SUBSCRIPTION || messageType === MessageType.API_TRANSACTIONAL);
     }

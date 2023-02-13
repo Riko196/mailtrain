@@ -8,6 +8,7 @@ const { CampaignStatus } = require('../../shared/campaigns');
 const { MessageStatus } = require('../../shared/messages');
 const log = require('../lib/log');
 const links = require('../models/links');
+const files = require('../models/files');
 const campaigns = require('../models/campaigns');
 const DataCollector = require('../lib/sender/synchronizer/data-collector');
 const Scheduler = require('../lib/sender/synchronizer/scheduler');
@@ -17,10 +18,10 @@ const contextHelpers = require('../lib/context-helpers');
 const CHUNK_SIZE = 10000;
 
 /**
- * The main component for synchronizing between non-high-available centralized Mailtrain and high-available
+ * The main component for synchronizing between non-highly available centralized Mailtrain and highly available
  * distributed Sender and vice versa. It initializes Scheduler and DataCollector and then in loop it communicates
  * with MongoDB database. It takes data from DataCollector and then sends them to MongoDB database at once for
- * ensuring high-availability.
+ * ensuring high availability.
  */
 class Synchronizer {
     constructor() {
@@ -47,7 +48,7 @@ class Synchronizer {
     }
 
     /** 
-     * Returns true if there is no available task.
+     * @returns true if there is no available task.
      */
     noScheduledTask() {
         return !this.synchronizingPausingCampaigns.length &&
@@ -77,7 +78,7 @@ class Synchronizer {
                 /* MongoDB --> Mailtrain */
                 await this.synchronizeSentQueuedMessagesFromMongoDB();
                 /* MongoDB --> Mailtrain */
-                await this.synchronizeMessyMessagesFromMongoDB();
+                await this.synchronizeBrokenMessagesFromMongoDB();
 
                 if (this.noScheduledTask() && this.noSynchronizingTask) {
                     await this.notifier.waitFor('taskAvailable');
@@ -100,7 +101,7 @@ class Synchronizer {
     }
 
     /**
-     * Select first campaign from list of pausing campaigns.
+     * @returns Id of campaign from list of pausing campaigns prepared for pausing.
      */
     selectPausingCampaign() {
         return this.synchronizingPausingCampaigns.shift();
@@ -122,7 +123,7 @@ class Synchronizer {
     }
 
     /**
-     * Select first campaign from list of scheduled campaigns.
+     * @returns first campaign from list of scheduled campaigns prepared for synchronizing with MongoDB.
      */
     selectScheduledCampaign() {
         return this.synchronizingScheduledCampaigns.shift();
@@ -150,7 +151,7 @@ class Synchronizer {
     }
 
     /**
-     * Select first CHUNK_SIZE of queued messages grouped by send configuration.
+     * @returns first CHUNK_SIZE of queued messages grouped by send configuration.
      */
     selectScheduledQueuedMessages() {
         let scheduledQueuedMessages = [];
@@ -168,7 +169,8 @@ class Synchronizer {
     }
 
     /**
-     * Select first CHUNK_SIZE of queued messages grouped by send configuration, collect all needed data, send them to MongoDB, and delete them from MySQL.
+     * Select first CHUNK_SIZE of queued messages grouped by send configuration, collect all needed data,
+     * send them to MongoDB, and delete them from MySQL.
      */
     async synchronizeScheduledQueuedMessages() {
         const scheduledQueuedMessages = this.selectScheduledQueuedMessages();
@@ -204,7 +206,8 @@ class Synchronizer {
     }
 
     /**
-     * Synchronize all data from sending campaigns from MongoDB (it includes campaign links, events about clicked links, count of sent messages, sent messages).
+     * Synchronize all data from sending campaigns from MongoDB (it includes campaign links, events about clicked links,
+     * count of sent messages, sent messages).
      */
     async synchronizeSendingCampaignsFromMongoDB() {
         await this.synchronizeLinksFromMongoDB();
@@ -416,6 +419,11 @@ class Synchronizer {
         await this.mongodb.collection('queued').deleteMany({ _id: { $in: deletingIds } });
     }
 
+    /**
+    * Synchronize sent triggered message with MySQL database.
+    * 
+    * @argument triggeredMessage - message prepared for inserting into MySQL database
+    */
     async processSentTriggeredMessage(triggeredMessage) {
         try {
             await knex('campaign_messages').insert({
@@ -442,6 +450,8 @@ class Synchronizer {
    /**
     * Insert an entry to test_messages. This allows us to remember test sends to lists that are not
     * listed in the campaign - see the check in getMessage.
+    * 
+    * @argument testMessage - message prepared for inserting into MySQL database
     */
     async processSentCampaignTestMessage(testMessage) {
         try {
@@ -460,6 +470,8 @@ class Synchronizer {
 
     /**
      * Unlock all attachments (at semaphore) used in sent queued message.
+     * 
+     * @argument attachments - attachments prepared for unlocking
      */
     async unlockAttachments(attachments) {
         for (const attachment of attachments) {
@@ -481,37 +493,41 @@ class Synchronizer {
     }
 
     /**
-     * Synchronize all messy messages (set status but no response for too long time).
+     * Synchronize all broken messages (set status but no response for too long time).
      */
-     async synchronizeMessyMessagesFromMongoDB() {
+     async synchronizeBrokenMessagesFromMongoDB() {
         /* Campaign messages */
-        const campaignMessyMessages = await this.getMessyMessagesFromMongoDB('campaign_messages');
-        /* Update status to FAILED and remove messy messages */
-        for (const campaignMessyMessage of campaignMessyMessages) {
-            const { _id, campaign, response, responseId } = campaignMessyMessage;
+        const campaignBrokenMessages = await this.getBrokenMessagesFromMongoDB('campaign_messages');
+        /* Update status to FAILED and remove broken messages */
+        for (const campaignBrokenMessage of campaignBrokenMessages) {
+            const { _id, campaign, response, responseId } = campaignBrokenMessage;
             await campaigns.updateMessageResponse(contextHelpers.getAdminContext(), _id, campaign, MessageStatus.FAILED, response, responseId);
         }
-        let deletingIds = campaignMessyMessages.map(campaignMessyMessage => campaignMessyMessage._id);
+        let deletingIds = campaignBrokenMessages.map(campaignBrokenMessage => campaignBrokenMessage._id);
         await this.mongodb.collection('campaign_messages').deleteMany({ _id: { $in: deletingIds } });
         
         /* QUEUED messages */
-        const queuedMessyMessages = await this.getMessyMessagesFromMongoDB('queued');
-        /* In QUEUED messages we do not need to update status and response, just unlock attachments and remove messy messages */
-        for (const queuedMessyMessage of queuedMessyMessages) {
-            if (queuedMessyMessage.attachments) {
-                await this.unlockAttachments(queuedMessyMessage.attachments);
+        const queuedBrokenMessages = await this.getBrokenMessagesFromMongoDB('queued');
+        /* In QUEUED messages we do not need to update status and response, just unlock attachments and remove broken messages */
+        for (const queuedBrokenMessage of queuedBrokenMessages) {
+            if (queuedBrokenMessage.attachments) {
+                await this.unlockAttachments(queuedBrokenMessage.attachments);
             }
         }
-        deletingIds = queuedMessyMessages.map(queuedMessyMessage => queuedMessyMessage._id);
+        deletingIds = queuedBrokenMessages.map(queuedBrokenMessage => queuedBrokenMessage._id);
         await this.mongodb.collection('queued').deleteMany({ _id: { $in: deletingIds } });
     }
 
     /**
-     * Get all messy messages from collection collectionName.
+     * Get all broken messages from collection collectionName.
+     * 
+     * @argument collectionName - collection name in which broken messages should be searched
+     * 
+     * @returns chunk of broken messages.
      */
-    async getMessyMessagesFromMongoDB(collectionName) {
-        /* Constant which specifies how long has to be old messy message so that it woulde be synchronized */
-        const MESSY_DIFFERENCE = 86400;
+    async getBrokenMessagesFromMongoDB(collectionName) {
+        /* Constant which specifies how long has to be old broken message so that it woulde be synchronized */
+        const BROKEN_DIFFERENCE = 86400;
     
         return await this.mongodb.collection(collectionName).aggregate([ {
                 $addFields: { updatedDifference: { $subtract: [new Date(), '$updated'] } }
@@ -520,7 +536,7 @@ class Synchronizer {
                     $and: [ 
                         { status: { $ne: MessageStatus.SCHEDULED }, },
                         { response: null },
-                        { updatedDifference: { $gte: MESSY_DIFFERENCE } }
+                        { updatedDifference: { $gte: BROKEN_DIFFERENCE } }
                     ] 
                 } 
             }
@@ -571,9 +587,9 @@ async function spawnSynchronizer() {
     const synchronizer = new Synchronizer();
 
     /* Catch Ctrl+C */
-    process.on('SIGINT', () => {}); 
+    process.on('SIGINT', () => { synchronizer.stopWorking = true; }); 
     /* Catch kill process */
-    process.on('SIGTERM', () => {}); 
+    process.on('SIGTERM', () => { synchronizer.stopWorking = true; }); 
 
     process.on('message', msg => {
         if (msg) {

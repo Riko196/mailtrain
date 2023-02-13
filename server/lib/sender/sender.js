@@ -15,6 +15,8 @@ let synchronizerProcess;
 
 /**
  *  Setup synchronizing camapaigns to scheduled status again and spawn Synchronizer.
+ * 
+ * @returns promise result of spawning
  */
 async function spawnSynchronizer() {
     log.verbose('Sender', 'Spawning synchronizer process');

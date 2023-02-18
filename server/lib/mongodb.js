@@ -59,11 +59,17 @@ async function knexMongoDBTransaction(callback) {
     try {
         let transactionResult = null;
         
-        await knex.transaction(async knexTx => {
-            await mongoDBSession.withTransaction(async () => {
+        await mongoDBSession.withTransaction(async () => {
+            await knex.transaction(async knexTx => {
                 transactionResult = await callback(knexTx, mongoDBSession);
-            }, transactionOptions);
-        });
+
+                if (mongoDBSession.transaction.state === 'TRANSACTION_ABORTED') {
+                    await knexTx.rollback(new Error("Transaction ABORTED! Try again."));
+                }
+            });
+
+            /* Knex transction always throws exception if is aborted so here we do not need to check it manually */
+        }, transactionOptions);
 
         return transactionResult;
     } catch (error) {

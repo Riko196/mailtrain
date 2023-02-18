@@ -1,9 +1,8 @@
 'use strict';
 
-const log = require('../log');
-const reports = require('../../models/reports');
-const executor = require('../executor');
-const contextHelpers = require('../context-helpers');
+const log = require('../lib/log');
+const reports = require('../models/reports');
+const executor = require('../lib/executor');
 
 let runningWorkersCount = 0;
 let maxWorkersCount = 1;

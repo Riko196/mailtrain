@@ -79,7 +79,7 @@ async function create(context, entity) {
         await shares.rebuildPermissionsTx(tx, { entityTypeId: 'report', entityId: id });
     });
 
-    const reportProcessor = require('../lib/report-processor/report-processor');
+    const reportProcessor = require('../services/report-processor');
     await reportProcessor.start(id);
     return id;
 }
@@ -115,7 +115,7 @@ async function updateWithConsistencyCheck(context, entity) {
     });
 
     // This require is here to avoid cyclic dependency
-    const reportProcessor = require('../lib/report-processor/report-processor');
+    const reportProcessor = require('../services/report-processor');
     await reportProcessor.start(entity.id);
 }
 

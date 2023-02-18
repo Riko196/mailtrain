@@ -114,7 +114,7 @@ process.on('message', msg => {
             const ids = privilegeHelpers.getConfigROUidGid();
             spawnProcess(
                 msg.tid,
-                path.join(__dirname, '..', 'lib', 'report-processor', 'reports', 'worker.js'),
+                path.join(__dirname, '..', 'lib', 'report-processor', 'report-processor-worker.js'),
                 [msg.data.id],
                 reportHelpers.getReportContentFile(msg.data),
                 reportHelpers.getReportOutputFile(msg.data),

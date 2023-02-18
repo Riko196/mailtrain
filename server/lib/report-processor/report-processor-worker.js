@@ -1,18 +1,18 @@
 'use strict';
 
-const reports = require('../../../models/reports');
-const lists = require('../../../models/lists');
-const subscriptions = require('../../../models/subscriptions');
-const { SubscriptionSource, SubscriptionStatus } = require('../../../../shared/lists');
-const campaigns = require('../../../models/campaigns');
+const reports = require('../../models/reports');
+const lists = require('../../models/lists');
+const subscriptions = require('../../models/subscriptions');
+const { SubscriptionSource, SubscriptionStatus } = require('../../../shared/lists');
+const campaigns = require('../../models/campaigns');
 const handlebars = require('handlebars');
 const vm = require('vm');
-const log = require('../../log');
-const knex = require('../../knex');
-const contextHelpers = require('../../context-helpers');
-const {renderCsvFromStream} = require('../../report-helpers');
+const log = require('../log');
+const knex = require('../knex');
+const contextHelpers = require('../context-helpers');
+const {renderCsvFromStream} = require('../report-helpers');
 const stream = require('stream');
-require('../../fork');
+require('../fork');
 
 async function main() {
     try {

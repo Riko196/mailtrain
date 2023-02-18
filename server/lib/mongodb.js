@@ -1,5 +1,6 @@
 'use strict';
 
+const knex = require('./knex');
 const config = require('./config');
 const log = require('./log');
 const { MongoClient } = require('mongodb');
@@ -52,6 +53,26 @@ function getNewTransactionSession() {
     return mongoDBClient.startSession();
 }
 
+async function knexMongoDBTransaction(callback) {
+    const mongoDBSession = getNewTransactionSession();
+
+    try {
+        let transactionResult = null;
+        
+        await knex.transaction(async knexTx => {
+            await mongoDBSession.withTransaction(async () => {
+                transactionResult = await callback(knexTx, mongoDBSession);
+            }, transactionOptions);
+        });
+
+        return transactionResult;
+    } catch (error) {
+        throw error;
+    } finally {
+        await mongoDBSession.endSession();
+    }
+}
+
 function getMongoDB() {
     return mongodb;
 }
@@ -61,3 +82,4 @@ module.exports.connectToMongoDB = connectToMongoDB;
 module.exports.getNewTransactionSession = getNewTransactionSession;
 module.exports.dropMailtrainMongoDB = dropMailtrainMongoDB;
 module.exports.getMongoDB = getMongoDB;
+module.exports.knexMongoDBTransaction = knexMongoDBTransaction;

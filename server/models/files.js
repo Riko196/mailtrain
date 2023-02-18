@@ -1,7 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
-const { getMongoDB } = require('../lib/mongodb');
+const { getMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const { enforce } = require('../lib/helpers');
 const dtHelpers = require('../lib/dt-helpers');
 const shares = require('./shares');
@@ -153,7 +153,7 @@ async function getFileByUrl(context, url) {
     }
 }
 
-// Adds files to an entity. The source data can be either a file (then it's path is contained in file.path) or in-memory data (then it's content is in file.data).
+/** @KnexMongoDBTransaction Adds files to an entity. The source data can be either a file (then it's path is contained in file.path) or in-memory data (then it's content is in file.data). */
 async function createFiles(context, type, subType, entityId, files, replacementBehavior, transformResponseFn) {
     enforceTypePermitted(type, subType);
     if (files.length == 0) {
@@ -171,10 +171,10 @@ async function createFiles(context, type, subType, entityId, files, replacementB
     const removedFiles = [];
     const filesRet = [];
 
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, type, entityId, getFilesPermission(type, subType, 'manage'));
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, type, entityId, getFilesPermission(type, subType, 'manage'));
 
-        const existingNamesRows = await tx(getFilesTable(type, subType)).where({entity: entityId, delete_pending: false}).select(['id', 'filename', 'originalname']);
+        const existingNamesRows = await knexTx(getFilesTable(type, subType)).where({entity: entityId, delete_pending: false}).select(['id', 'filename', 'originalname']);
 
         const existingNameSet = new Set();
         for (const row of existingNamesRows) {
@@ -246,15 +246,15 @@ async function createFiles(context, type, subType, entityId, files, replacementB
                 }
             }
 
-            await tx(getFilesTable(type, subType)).where('entity', entityId).whereIn('id', idsToRemove).del();
+            await knexTx(getFilesTable(type, subType)).where('entity', entityId).whereIn('id', idsToRemove).del();
             /* Synchronizing with MongoDB */
             if (getFilesTable(type, subType) === 'files_campaign_file') {
-                await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId });
+                await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ _id: { $in: idsToRemove }, entity: entityId }, { session: mongoDBSession });
             }
         }
 
         if (fileEntities) {
-            const ids = await tx(getFilesTable(type, subType)).insert(fileEntities);
+            const ids = await knexTx(getFilesTable(type, subType)).insert(fileEntities);
             /* Synchronizing with MongoDB */
             if (getFilesTable(type, subType) === 'files_campaign_file') {
                 for (let i = 0; i < ids.length; i++) {
@@ -262,7 +262,7 @@ async function createFiles(context, type, subType, entityId, files, replacementB
                     fileEntities[i].delete_pending = false;
                     fileEntities[i].lock_count = 0;
                 }
-                await getMongoDB().collection(getFilesTable(type, subType)).insertMany(fileEntities);
+                await getMongoDB().collection(getFilesTable(type, subType)).insertMany(fileEntities, { session: mongoDBSession });
             }
         }
     });
@@ -339,31 +339,33 @@ async function unlockTx(tx, type, subType, id) {
     }
 }
 
+/** @KnexMongoDBTransaction */
 async function removeFile(context, type, subType, id) {
     enforceTypePermitted(type, subType);
 
-    await knex.transaction(async tx => {
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
         const filesTableName = getFilesTable(type, subType);
-        const file = await tx(filesTableName).where('id', id).first();
-        await shares.enforceEntityPermissionTx(tx, context, type, file.entity, getFilesPermission(type, subType, 'manage'));
+        const file = await knexTx(filesTableName).where('id', id).first();
+        await shares.enforceEntityPermissionTx(knexTx, context, type, file.entity, getFilesPermission(type, subType, 'manage'));
 
         if (!file.lock_count) {
-            await tx(filesTableName).where('id', file.id).del();
+            await knexTx(filesTableName).where('id', file.id).del();
             /* Synchronizing with MongoDB */
             if (filesTableName === 'files_campaign_file') {
-                await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id });
+                await getMongoDB().collection(filesTableName).deleteOne({ _id: file.id }, { session: mongoDBSession });
             }
 
             const filePath = getFilePath(type, subType, file.entity, file.filename);
             await fs.removeAsync(filePath);
         } else {
-            await tx(filesTableName).where('id', file.id).update({delete_pending: true});
+            await knexTx(filesTableName).where('id', file.id).update({delete_pending: true});
             /* No need to synchronize with MongoDB */
         }
     });
 }
 
-async function copyAllTx(tx, context, fromType, fromSubType, fromEntityId, toType, toSubType, toEntityId) {
+/** @KnexMongoDBTransaction */
+async function copyAllTx(tx, mongoDBSession, context, fromType, fromSubType, fromEntityId, toType, toSubType, toEntityId) {
     enforceTypePermitted(fromType, fromSubType);
     await shares.enforceEntityPermissionTx(tx, context, fromType, fromEntityId, getFilesPermission(fromType, fromSubType, 'view'));
 
@@ -387,12 +389,13 @@ async function copyAllTx(tx, context, fromType, fromSubType, fromEntityId, toTyp
             for (let i = 0; i < ids.length; i++) {
                 rows[i]._id = ids[i];
             }
-            await getMongoDB().collection(getFilesTable(toType, toSubType)).insertMany(rows);
+            await getMongoDB().collection(getFilesTable(toType, toSubType)).insertMany(rows, { session: mongoDBSession });
         }
     }
 }
 
-async function removeAllTx(tx, context, type, subType, entityId) {
+/** @KnexMongoDBTransaction */
+async function removeAllTx(tx, mongoDBSession, context, type, subType, entityId) {
     enforceTypePermitted(type, subType);
     await shares.enforceEntityPermissionTx(tx, context, type, entityId, getFilesPermission(type, subType, 'manage'));
 
@@ -405,7 +408,7 @@ async function removeAllTx(tx, context, type, subType, entityId) {
     await tx(getFilesTable(type, subType)).where('entity', entityId).del();
     /* Synchronizing with MongoDB */
     if (getFilesTable(type, subType) === 'files_campaign_file') {
-        await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ entity: entityId });
+        await getMongoDB().collection(getFilesTable(type, subType)).deleteMany({ entity: entityId }, { session: mongoDBSession });
     }
 }
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
-const { getMongoDB } = require('../lib/mongodb');
+const { getMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const dtHelpers = require('../lib/dt-helpers');
 const interoperableErrors = require('../../shared/interoperable-errors');
@@ -484,102 +484,103 @@ async function _validateAndPreprocess(tx, context, entity, isCreate, content) {
     }
 }
 
-async function _createTx(tx, context, entity, content) {
-    return await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'namespace', entity.namespace, 'createCampaign');
+/** @KnexMongoDBTransaction */
+async function _createTx(tx, mongoDBSession, context, entity, content) {
+    await shares.enforceEntityPermissionTx(tx, context, 'namespace', entity.namespace, 'createCampaign');
 
-        if (entity.channel) {
-            await shares.enforceEntityPermissionTx(tx, context, 'channel', entity.channel, 'createCampaign');
-        }
+    if (entity.channel) {
+        await shares.enforceEntityPermissionTx(tx, context, 'channel', entity.channel, 'createCampaign');
+    }
 
-        let copyFilesFrom = null;
-        if (entity.source === CampaignSource.CUSTOM_FROM_TEMPLATE) {
-            copyFilesFrom = {
-                entityType: 'template',
-                entityId: entity.data.sourceTemplate
-            };
+    let copyFilesFrom = null;
+    if (entity.source === CampaignSource.CUSTOM_FROM_TEMPLATE) {
+        copyFilesFrom = {
+            entityType: 'template',
+            entityId: entity.data.sourceTemplate
+        };
 
-            const template = await templates.getByIdTx(tx, context, entity.data.sourceTemplate, false);
+        const template = await templates.getByIdTx(tx, context, entity.data.sourceTemplate, false);
 
-            entity.data.sourceCustom = {
-                type: template.type,
-                tag_language: template.tag_language,
-                data: template.data,
-                html: template.html,
-                text: template.text
-            };
+        entity.data.sourceCustom = {
+            type: template.type,
+            tag_language: template.tag_language,
+            data: template.data,
+            html: template.html,
+            text: template.text
+        };
 
-        } else if (entity.source === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
-            copyFilesFrom = {
-                entityType: 'campaign',
-                entityId: entity.data.sourceCampaign
-            };
+    } else if (entity.source === CampaignSource.CUSTOM_FROM_CAMPAIGN) {
+        copyFilesFrom = {
+            entityType: 'campaign',
+            entityId: entity.data.sourceCampaign
+        };
 
-            const sourceCampaign = await getByIdTx(tx, context, entity.data.sourceCampaign, false);
-            enforce(sourceCampaign.source === CampaignSource.CUSTOM || sourceCampaign.source === CampaignSource.CUSTOM_FROM_TEMPLATE || sourceCampaign.source === CampaignSource.CUSTOM_FROM_CAMPAIGN, 'Incorrect source type of the source campaign.');
+        const sourceCampaign = await getByIdTx(tx, context, entity.data.sourceCampaign, false);
+        enforce(sourceCampaign.source === CampaignSource.CUSTOM || sourceCampaign.source === CampaignSource.CUSTOM_FROM_TEMPLATE || sourceCampaign.source === CampaignSource.CUSTOM_FROM_CAMPAIGN, 'Incorrect source type of the source campaign.');
 
-            entity.data.sourceCustom = sourceCampaign.data.sourceCustom;
-        }
+        entity.data.sourceCustom = sourceCampaign.data.sourceCustom;
+    }
 
-        await _validateAndPreprocess(tx, context, entity, true, content);
+    await _validateAndPreprocess(tx, context, entity, true, content);
 
-        const filteredEntity = filterObject(entity, entity.type === CampaignType.RSS_ENTRY ? allowedKeysCreateRssEntry : allowedKeysCreate);
-        filteredEntity.cid = shortid.generate();
+    const filteredEntity = filterObject(entity, entity.type === CampaignType.RSS_ENTRY ? allowedKeysCreateRssEntry : allowedKeysCreate);
+    filteredEntity.cid = shortid.generate();
 
-        const data = filteredEntity.data;
+    const data = filteredEntity.data;
 
-        filteredEntity.data = JSON.stringify(filteredEntity.data);
+    filteredEntity.data = JSON.stringify(filteredEntity.data);
 
-        if (filteredEntity.type === CampaignType.RSS || filteredEntity.type === CampaignType.TRIGGERED) {
-            filteredEntity.status = CampaignStatus.ACTIVE;
-        } else if (filteredEntity.type === CampaignType.RSS_ENTRY) {
-            filteredEntity.status = CampaignStatus.SCHEDULED;
-            filteredEntity.start_at = new Date();
-        } else {
-            filteredEntity.status = CampaignStatus.IDLE;
-        }
+    if (filteredEntity.type === CampaignType.RSS || filteredEntity.type === CampaignType.TRIGGERED) {
+        filteredEntity.status = CampaignStatus.ACTIVE;
+    } else if (filteredEntity.type === CampaignType.RSS_ENTRY) {
+        filteredEntity.status = CampaignStatus.SCHEDULED;
+        filteredEntity.start_at = new Date();
+    } else {
+        filteredEntity.status = CampaignStatus.IDLE;
+    }
 
-        const ids = await tx('campaigns').insert(filteredEntity);
-        const id = ids[0];
+    const ids = await tx('campaigns').insert(filteredEntity);
+    const id = ids[0];
 
-        await tx('campaign_lists').insert(entity.lists.map(x => ({campaign: id, ...x})));
+    await tx('campaign_lists').insert(entity.lists.map(x => ({campaign: id, ...x})));
 
-        if (entity.source === CampaignSource.TEMPLATE) {
-            await tx('template_dep_campaigns').insert({
-               campaign: id,
-               template: entity.data.sourceTemplate
-            });
-        }
+    if (entity.source === CampaignSource.TEMPLATE) {
+        await tx('template_dep_campaigns').insert({
+            campaign: id,
+            template: entity.data.sourceTemplate
+        });
+    }
 
-        if (filteredEntity.parent) {
-            await shares.rebuildPermissionsTx(tx, { entityTypeId: 'campaign', entityId: id, parentId: filteredEntity.parent });
-        } else {
-            await shares.rebuildPermissionsTx(tx, { entityTypeId: 'campaign', entityId: id });
-        }
+    if (filteredEntity.parent) {
+        await shares.rebuildPermissionsTx(tx, { entityTypeId: 'campaign', entityId: id, parentId: filteredEntity.parent });
+    } else {
+        await shares.rebuildPermissionsTx(tx, { entityTypeId: 'campaign', entityId: id });
+    }
 
-        if (copyFilesFrom) {
-            await files.copyAllTx(tx, context, copyFilesFrom.entityType, 'file', copyFilesFrom.entityId, 'campaign', 'file', id);
-            convertFileURLs(data.sourceCustom, copyFilesFrom.entityType, copyFilesFrom.entityId, 'campaign', id);
-            await tx('campaigns')
-                .update({
-                    data: JSON.stringify(data)
-                }).where('id', id);
-        }
+    if (copyFilesFrom) {
+        await files.copyAllTx(tx, mongoDBSession, context, copyFilesFrom.entityType, 'file', copyFilesFrom.entityId, 'campaign', 'file', id);
+        convertFileURLs(data.sourceCustom, copyFilesFrom.entityType, copyFilesFrom.entityId, 'campaign', id);
+        await tx('campaigns')
+            .update({
+                data: JSON.stringify(data)
+            }).where('id', id);
+    }
 
-        await activityLog.logEntityActivity('campaign', EntityActivityType.CREATE, id, {status: filteredEntity.status});
+    await activityLog.logEntityActivity('campaign', EntityActivityType.CREATE, id, {status: filteredEntity.status});
 
-        return id;
-    });
+    return id;
 }
 
+/** @KnexMongoDBTransaction */
 async function create(context, entity) {
-    return await knex.transaction(async tx => {
-        return await _createTx(tx, context, entity, Content.ALL);
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        return await _createTx(knexTx, mongoDBSession, context, entity, Content.ALL);
     });
 }
 
-async function createRssTx(tx, context, entity) {
-    return await _createTx(tx, context, entity, Content.RSS_ENTRY);
+/** @KnexMongoDBTransaction */
+async function createRssTx(tx, mongoDBSession, context, entity) {
+    return await _createTx(tx, mongoDBSession, context, entity, Content.RSS_ENTRY);
 }
 
 async function _validateChannelMoveTx(tx, context, entity, existing) {
@@ -640,7 +641,8 @@ async function updateWithConsistencyCheck(context, entity, content) {
     });
 }
 
-async function _removeTx(tx, context, id, existing = null, overrideTypeCheck = false) {
+/** @KnexMongoDBTransaction */
+async function _removeTx(tx, mongoDBSession, context, id, existing = null, overrideTypeCheck = false) {
     await shares.enforceEntityPermissionTx(tx, context, 'campaign', id, 'delete');
 
     if (!existing) {
@@ -657,21 +659,21 @@ async function _removeTx(tx, context, id, existing = null, overrideTypeCheck = f
 
     const childCampaigns = await tx('campaigns').where('parent', id).select(['id', 'status', 'type']);
     for (const childCampaign of childCampaigns) {
-        await _removeTx(tx, context, childCampaign.id, childCampaign, true);
+        await _removeTx(tx, mongoDBSession, context, childCampaign.id, childCampaign, true);
     }
 
-    await files.removeAllTx(tx, context, 'campaign', 'file', id);
-    await files.removeAllTx(tx, context, 'campaign', 'attachment', id);
+    await files.removeAllTx(tx, mongoDBSession, context, 'campaign', 'file', id);
+    await files.removeAllTx(tx, mongoDBSession, context, 'campaign', 'attachment', id);
 
     await tx('campaign_lists').where('campaign', id).del();
     await tx('campaign_messages').where('campaign', id).del();
     /* Synchronizing with MongoDB */
-    await getMongoDB().collection('campaign_messages').deleteMany({ campaign: id });
+    await getMongoDB().collection('campaign_messages').deleteMany({ campaign: id }, { session: mongoDBSession });
     await tx('campaign_links').where('campaign', id).del();
 
     await tx('links').where('campaign', id).del();
     /* Synchronizing with MongoDB */
-    await getMongoDB().collection('links').deleteMany({ campaign: id });
+    await getMongoDB().collection('links').deleteMany({ campaign: id }, { session: mongoDBSession });
     await triggers.removeAllByCampaignIdTx(tx, context, id);
 
     await tx('template_dep_campaigns')
@@ -683,10 +685,10 @@ async function _removeTx(tx, context, id, existing = null, overrideTypeCheck = f
     await activityLog.logEntityActivity('campaign', EntityActivityType.REMOVE, id);
 }
 
-
+/** @KnexMongoDBTransaction */
 async function remove(context, id) {
-    await knex.transaction(async tx => {
-        await _removeTx(tx, context, id);
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await _removeTx(knexTx, mongoDBSession, context, id);
     });
 }
 
@@ -814,14 +816,15 @@ campaignMessageStatusToSubscriptionStatusMapping.set(MessageStatus.BOUNCED, Subs
 campaignMessageStatusToSubscriptionStatusMapping.set(MessageStatus.UNSUBSCRIBED, SubscriptionStatus.UNSUBSCRIBED);
 campaignMessageStatusToSubscriptionStatusMapping.set(MessageStatus.COMPLAINED, SubscriptionStatus.COMPLAINED);
 
+/** @KnexMongoDBTransaction */
 async function changeStatusByMessage(context, message, campaignMessageStatus, updateSubscription) {
-    await knex.transaction(async tx => {
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
         if (updateSubscription) {
             enforce(campaignMessageStatusToSubscriptionStatusMapping.has(campaignMessageStatus));
-            await subscriptions.changeStatusTx(tx, context, message.list, message.subscription, campaignMessageStatusToSubscriptionStatusMapping.get(campaignMessageStatus));
+            await subscriptions.changeStatusTx(knexTx, mongoDBSession, context, message.list, message.subscription, campaignMessageStatusToSubscriptionStatusMapping.get(campaignMessageStatus));
         }
 
-        await _changeStatusByMessageTx(tx, context, message, campaignMessageStatus);
+        await _changeStatusByMessageTx(knexTx, context, message, campaignMessageStatus);
     });
 }
 
@@ -1010,6 +1013,7 @@ async function reschedule(context, campaignId) {
     await _changeStatus(context, campaignId, [CampaignStatus.SCHEDULED, CampaignStatus.SENDING], CampaignStatus.SCHEDULED, 'Cannot reschedule campaign until it is in SENDING state');
 }
 
+/** KnexMongoDBTransaction not applied here because of performance reasons and it is not symmetric replication */
 async function reset(context, campaignId) {
     await knex.transaction(async tx => {
         // This is quite inefficient because it selects the same row 3 times. However as RESET is

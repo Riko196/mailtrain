@@ -1,6 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
+const { knexMongoDBTransaction } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const { enforce, filterObject } = require('../lib/helpers');
 const dtHelpers = require('../lib/dt-helpers');
@@ -69,12 +70,13 @@ async function _validateAndPreprocess(tx, entity) {
     // We don't check contents of the "data" because it is processed solely on the client. The client generates the HTML code we use when sending out campaigns.
 }
 
+/** @KnexMongoDBTransaction */
 async function create(context, entity) {
-    return await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'namespace', entity.namespace, 'createTemplate');
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'namespace', entity.namespace, 'createTemplate');
 
         if (entity.fromExistingEntity) {
-            const existing = await getByIdTx(tx, context, entity.existingEntity, false);
+            const existing = await getByIdTx(knexTx, context, entity.existingEntity, false);
 
             entity.type = existing.type;
             entity.tag_language = existing.tag_language;
@@ -83,7 +85,7 @@ async function create(context, entity) {
             entity.text = existing.text;
         }
 
-        await _validateAndPreprocess(tx, entity);
+        await _validateAndPreprocess(knexTx, entity);
 
         const filteredEntityWithUnstringifiedData = filterObject(entity, allowedKeys);
         const filteredEntity = {
@@ -91,13 +93,13 @@ async function create(context, entity) {
             data: JSON.stringify(filteredEntityWithUnstringifiedData.data)
         };
 
-        const ids = await tx('templates').insert(filteredEntity);
+        const ids = await knexTx('templates').insert(filteredEntity);
         const id = ids[0];
 
-        await shares.rebuildPermissionsTx(tx, { entityTypeId: 'template', entityId: id });
+        await shares.rebuildPermissionsTx(knexTx, { entityTypeId: 'template', entityId: id });
 
         if (entity.fromExistingEntity) {
-            await files.copyAllTx(tx, context, 'template', 'file', entity.existingEntity, 'template', 'file', id);
+            await files.copyAllTx(knexTx, mongoDBSession, context, 'template', 'file', entity.existingEntity, 'template', 'file', id);
 
             convertFileURLs(filteredEntityWithUnstringifiedData, 'template', entity.existingEntity, 'template', id);
 
@@ -106,7 +108,7 @@ async function create(context, entity) {
                 data: JSON.stringify(filteredEntityWithUnstringifiedData.data)
             };
 
-            await tx('templates').update(filteredEntity).where('id', id);
+            await knexTx('templates').update(filteredEntity).where('id', id);
         }
 
         return id;
@@ -143,22 +145,22 @@ async function updateWithConsistencyCheck(context, entity) {
 }
 
 async function remove(context, id) {
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'template', id, 'delete');
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'template', id, 'delete');
 
-        await dependencyHelpers.ensureNoDependencies(tx, context, id, [
+        await dependencyHelpers.ensureNoDependencies(knexTx, context, id, [
             {
                 entityTypeId: 'campaign',
-                query: tx => tx('template_dep_campaigns')
+                query: knexTx => knexTx('template_dep_campaigns')
                     .where('template_dep_campaigns.template', id)
                     .innerJoin('campaigns', 'template_dep_campaigns.campaign', 'campaigns.id')
                     .select(['campaigns.id', 'campaigns.name'])
             }
         ]);
 
-        await files.removeAllTx(tx, context, 'template', 'file', id);
+        await files.removeAllTx(knexTx, mongoDBSession, context, 'template', 'file', id);
 
-        await tx('templates').where('id', id).del();
+        await knexTx('templates').where('id', id).del();
     });
 }
 

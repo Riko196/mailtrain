@@ -4,6 +4,7 @@ const config = require('../lib/config');
 const process = require('process');
 const log = require('../lib/log');
 const knex = require('../lib/knex');
+const { getMongoDB, connectToMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const { CampaignType, CampaignStatus, CampaignSource } = require('../../shared/campaigns');
 const campaigns = require('../models/campaigns');
 const contextHelpers = require('../lib/context-helpers');
@@ -20,6 +21,7 @@ let running = false;
 
 let periodicTimeout = null;
 
+/** @KnexMongoDBTransaction */
 async function run() {
     if (running) {
         return;
@@ -27,6 +29,10 @@ async function run() {
 
     running = true;
 
+    if (getMongoDB() === null) {
+        await connectToMongoDB();
+    }
+    
     try {
         let rssCampaignIdRow;
 
@@ -48,9 +54,9 @@ async function run() {
 
                 for (const entry of entries) {
                     let entryId = null;
-
-                    await knex.transaction(async tx => {
-                        const existingEntry = await tx('rss').where({
+                    
+                    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+                        const existingEntry = await knexTx('rss').where({
                             parent: rssCampaign.id,
                             guid: entry.guid
                         }).first();
@@ -88,10 +94,10 @@ async function run() {
                                 unsubscribe_url: rssCampaign.unsubscribe_url
                             };
 
-                            const ids = await campaigns.createRssTx(tx, contextHelpers.getAdminContext(), campaign);
+                            const ids = await campaigns.createRssTx(knexTx, mongoDBSession, contextHelpers.getAdminContext(), campaign);
                             const campaignId = ids[0];
 
-                            await tx('rss').insert({
+                            await knexTx('rss').insert({
                                 parent: rssCampaign.id,
                                 campaign: campaignId,
                                 guid: entry.guid,

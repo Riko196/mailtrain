@@ -1,7 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
-const { getMongoDB } = require('../lib/mongodb');
+const { getMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const dtHelpers = require('../lib/dt-helpers');
 const shares = require('./shares');
 const tools = require('../lib/tools');
@@ -40,31 +40,34 @@ async function search(context, offset, limit, search) {
     });
 }
 
+/** @KnexMongoDBTransaction */
 async function add(context, email) {
     enforce(email, 'Email has to be set');
 
     shares.enforceGlobalPermission(context, 'manageBlacklist');
 
     try {
-        await knex('blacklist').insert({ email });
-        await getMongoDB().collection('blacklist').insertOne({ email });
-        await activityLog.logBlacklistActivity(BlacklistActivityType.ADD, email);
+        await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+            await knexTx('blacklist').insert({ email });
+            await getMongoDB().collection('blacklist').insertOne({ email }, { session: mongoDBSession });
+            await activityLog.logBlacklistActivity(BlacklistActivityType.ADD, email);
+        });
     } catch (err) {
-        if (err.code === 'ER_DUP_ENTRY') {
-        } else {
+        if (err.code !== 'ER_DUP_ENTRY') {
             throw err;
         }
     }
 }
 
+/** @KnexMongoDBTransaction */
 async function remove(context, email) {
     enforce(email, 'Email has to be set');
 
-    return await knex.transaction(async tx => {
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
         shares.enforceGlobalPermission(context, 'manageBlacklist');
 
-        await tx('blacklist').where('email', email).del();
-        await getMongoDB().collection('blacklist').deleteOne({ email });
+        await knexTx('blacklist').where('email', email).del();
+        await getMongoDB().collection('blacklist').deleteOne({ email }, { session: mongoDBSession });
         await activityLog.logBlacklistActivity(BlacklistActivityType.REMOVE, email);
     });
 }

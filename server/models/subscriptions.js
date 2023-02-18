@@ -2,7 +2,7 @@
 
 const config = require('../lib/config');
 const knex = require('../lib/knex');
-const { getMongoDB } = require('../lib/mongodb');
+const { getMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const shortid = require('../lib/shortid');
 const dtHelpers = require('../lib/dt-helpers');
@@ -595,7 +595,8 @@ function purgeSensitiveData(subscription, groupedFieldsMap) {
     }
 }
 
-async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
+/** @KnexMongoDBTransaction */
+async function _update(tx, mongoDBSession, listId, groupedFieldsMap, existing, filteredEntity) {
     if ('status' in filteredEntity) {
         if (existing.status !== filteredEntity.status) {
             filteredEntity.status_change = new Date();
@@ -620,7 +621,7 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
         filteredEntity.updated = new Date();
         await tx(getSubscriptionTableName(listId)).where('id', existing.id).update(filteredEntity);
         /* Synchronizing with MongoDB */
-        await getMongoDB().collection(getSubscriptionTableName(listId)).updateOne({ _id: existing.id }, { $set: filteredEntity });
+        await getMongoDB().collection(getSubscriptionTableName(listId)).updateOne({ _id: existing.id }, { $set: filteredEntity }, { session: mongoDBSession });
 
         if ('status' in filteredEntity) {
             let countIncrement = 0;
@@ -637,7 +638,7 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
     } else {
         await tx(getSubscriptionTableName(listId)).where('id', existing.id).del();
         /* Synchronizing with MongoDB */
-        await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({ _id: existing.id });
+        await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({ _id: existing.id }, { session: mongoDBSession });
 
         if (existing.status === SubscriptionStatus.SUBSCRIBED) {
             await tx('lists').where('id', listId).decrement('subscribers', 1);
@@ -645,10 +646,11 @@ async function _update(tx, listId, groupedFieldsMap, existing, filteredEntity) {
     }
 }
 
-async function _create(tx, listId, filteredEntity) {
+/** @KnexMongoDBTransaction */
+async function _create(tx, mongoDBSession, listId, filteredEntity) {
     const ids = await tx(getSubscriptionTableName(listId)).insert(filteredEntity);
     const id = ids[0];
-    await getMongoDB().collection(getSubscriptionTableName(listId)).insertOne({ ...filteredEntity, _id: id });
+    await getMongoDB().collection(getSubscriptionTableName(listId)).insertOne({ ...filteredEntity, _id: id }, { session: mongoDBSession });
 
     if (filteredEntity.status === SubscriptionStatus.SUBSCRIBED) {
         await tx('lists').where('id', listId).increment('subscribers', 1);
@@ -657,12 +659,13 @@ async function _create(tx, listId, filteredEntity) {
     return id;
 }
 
-/*
-    Adds a new subscription. Returns error if a subscription with the same email address is already present and is not unsubscribed.
-    If it is unsubscribed and meta.updateOfUnsubscribedAllowed, the existing subscription is changed based on the provided data.
-    If meta.updateAllowed is true, it updates even an active subscription.
+/**
+ *  Adds a new subscription. Returns error if a subscription with the same email address is already present and is not unsubscribed.
+ *  If it is unsubscribed and meta.updateOfUnsubscribedAllowed, the existing subscription is changed based on the provided data.
+ *  If meta.updateAllowed is true, it updates even an active subscription.
+ *  @KnexMongoDBTransaction
  */
-async function createTxWithGroupedFieldsMap(tx, context, listId, groupedFieldsMap, entity, source, meta) {
+async function createTxWithGroupedFieldsMap(tx, mongoDBSession, context, listId, groupedFieldsMap, entity, source, meta) {
     await shares.enforceEntityPermissionTx(tx, context, 'list', listId, 'manageSubscriptions');
 
     const allowedKeys = getAllowedKeys(groupedFieldsMap);
@@ -680,34 +683,36 @@ async function createTxWithGroupedFieldsMap(tx, context, listId, groupedFieldsMa
     filteredEntity.opt_in_country = meta.country;
 
     if (meta.update) { // meta.update is set by _validateAndPreprocess
-        await _update(tx, listId, groupedFieldsMap, meta.existing, filteredEntity);
+        await _update(tx, mongoDBSession, listId, groupedFieldsMap, meta.existing, filteredEntity);
         meta.cid = meta.existing.cid; // The cid is needed by /confirm/subscribe/:cid
         return meta.existing.id;
 
     } else {
         filteredEntity.cid = shortid.generate();
         meta.cid = filteredEntity.cid; // The cid is needed by /confirm/subscribe/:cid
-        return await _create(tx, listId, filteredEntity);
+        return await _create(tx, mongoDBSession, listId, filteredEntity);
     }
 }
 
+/** @KnexMongoDBTransaction */
 async function create(context, listId, entity, source, meta) {
-    return await knex.transaction(async tx => {
-        const groupedFieldsMap = await getGroupedFieldsMapTx(tx, listId);
-        return await createTxWithGroupedFieldsMap(tx, context, listId, groupedFieldsMap, entity, source, meta);
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        const groupedFieldsMap = await getGroupedFieldsMapTx(knexTx, listId);
+        return await createTxWithGroupedFieldsMap(knexTx, mongoDBSession, context, listId, groupedFieldsMap, entity, source, meta);
     });
 }
 
+/** @KnexMongoDBTransaction */
 async function updateWithConsistencyCheck(context, listId, entity, source) {
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'list', listId, 'manageSubscriptions');
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'list', listId, 'manageSubscriptions');
 
-        const existing = await tx(getSubscriptionTableName(listId)).where('id', entity.id).first();
+        const existing = await knexTx(getSubscriptionTableName(listId)).where('id', entity.id).first();
         if (!existing) {
             throw new interoperableErrors.NotFoundError();
         }
 
-        const groupedFieldsMap = await getGroupedFieldsMapTx(tx, listId);
+        const groupedFieldsMap = await getGroupedFieldsMapTx(knexTx, listId);
         const allowedKeys = getAllowedKeys(groupedFieldsMap);
 
         groupSubscription(groupedFieldsMap, existing);
@@ -717,7 +722,7 @@ async function updateWithConsistencyCheck(context, listId, entity, source) {
             throw new interoperableErrors.ChangedError();
         }
 
-        await _validateAndPreprocess(tx, listId, groupedFieldsMap, entity, {}, false);
+        await _validateAndPreprocess(knexTx, listId, groupedFieldsMap, entity, {}, false);
 
         const filteredEntity = filterObject(entity, allowedKeys);
 
@@ -725,11 +730,12 @@ async function updateWithConsistencyCheck(context, listId, entity, source) {
 
         updateSourcesAndHashEmail(filteredEntity, source, groupedFieldsMap);
 
-        await _update(tx, listId, groupedFieldsMap, existing, filteredEntity);
+        await _update(knexTx, mongoDBSession, listId, groupedFieldsMap, existing, filteredEntity);
     });
 }
 
-async function _removeAndGetTx(tx, context, listId, existing) {
+/** @KnexMongoDBTransaction */
+async function _removeAndGetTx(tx, mongoDBSession, context, listId, existing) {
     await shares.enforceEntityPermissionTx(tx, context, 'list', listId, 'manageSubscriptions');
 
     if (!existing) {
@@ -738,7 +744,7 @@ async function _removeAndGetTx(tx, context, listId, existing) {
 
     await tx(getSubscriptionTableName(listId)).where('id', existing.id).del();
     /* Synchronizing with MongoDB */
-    await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({ _id: existing.id });
+    await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({ _id: existing.id }, { session: mongoDBSession });
 
     if (existing.status === SubscriptionStatus.SUBSCRIBED) {
         await tx('lists').where('id', listId).decrement('subscribers', 1);
@@ -747,39 +753,41 @@ async function _removeAndGetTx(tx, context, listId, existing) {
     return existing;
 }
 
+/** @KnexMongoDBTransaction */
 async function remove(context, listId, id) {
-    await knex.transaction(async tx => {
-        const existing = await tx(getSubscriptionTableName(listId)).where('id', id).first();
-        await _removeAndGetTx(tx, context, listId, existing);
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        const existing = await knexTx(getSubscriptionTableName(listId)).where('id', id).first();
+        await _removeAndGetTx(knexTx, mongoDBSession, context, listId, existing);
     });
 }
 
+/** @KnexMongoDBTransaction */
 async function removeByEmailAndGet(context, listId, email) {
-    return await knex.transaction(async tx => {
-        const existing = await tx(getSubscriptionTableName(listId)).where('hash_email', hashEmail(email)).first();
-        return await _removeAndGetTx(tx, context, listId, existing);
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        const existing = await knexTx(getSubscriptionTableName(listId)).where('hash_email', hashEmail(email)).first();
+        return await _removeAndGetTx(knexTx, mongoDBSession, context, listId, existing);
     });
 }
 
-
-async function _changeStatusTx(tx, context, listId, existing, newStatus) {
+/** @KnexMongoDBTransaction */
+async function _changeStatusTx(tx, mongoDBSession, context, listId, existing, newStatus) {
     enforce(newStatus !== SubscriptionStatus.SUBSCRIBED);
 
     const groupedFieldsMap = await getGroupedFieldsMapTx(tx, listId);
 
     await shares.enforceEntityPermissionTx(tx, context, 'list', listId, 'manageSubscriptions');
 
-    await _update(tx, listId, groupedFieldsMap, existing, {
+    await _update(tx, mongoDBSession, listId, groupedFieldsMap, existing, {
         status: newStatus
     });
 }
 
-async function _unsubscribeExistingAndGetTx(tx, context, listId, existing) {
+async function _unsubscribeExistingAndGetTx(tx, mongoDBSession, context, listId, existing) {
     if (!(existing && existing.status === SubscriptionStatus.SUBSCRIBED)) {
         throw new interoperableErrors.NotFoundError();
     }
 
-    await _changeStatusTx(tx, context, listId, existing, SubscriptionStatus.UNSUBSCRIBED);
+    await _changeStatusTx(tx, mongoDBSession, context, listId, existing, SubscriptionStatus.UNSUBSCRIBED);
 
     existing.status = SubscriptionStatus.SUBSCRIBED;
 
@@ -787,60 +795,60 @@ async function _unsubscribeExistingAndGetTx(tx, context, listId, existing) {
 }
 
 async function unsubscribeByIdAndGet(context, listId, subscriptionId) {
-    return await knex.transaction(async tx => {
-        const existing = await tx(getSubscriptionTableName(listId)).where('id', subscriptionId).first();
-        return await _unsubscribeExistingAndGetTx(tx, context, listId, existing);
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        const existing = await knexTx(getSubscriptionTableName(listId)).where('id', subscriptionId).first();
+        return await _unsubscribeExistingAndGetTx(knexTx, mongoDBSession, context, listId, existing);
     });
 }
 
 async function unsubscribeByCidAndGet(context, listId, subscriptionCid, campaignCid) {
-    return await knex.transaction(async tx => {
-        const existing = await tx(getSubscriptionTableName(listId)).where('cid', subscriptionCid).first();
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        const existing = await knexTx(getSubscriptionTableName(listId)).where('cid', subscriptionCid).first();
 
         if (campaignCid) {
-            await campaigns.changeStatusByCampaignCidAndSubscriptionIdTx(tx, context, campaignCid, listId, existing.id, MessageStatus.UNSUBSCRIBED);
+            await campaigns.changeStatusByCampaignCidAndSubscriptionIdTx(knexTx, context, campaignCid, listId, existing.id, MessageStatus.UNSUBSCRIBED);
         }
 
-        return await _unsubscribeExistingAndGetTx(tx, context, listId, existing);
+        return await _unsubscribeExistingAndGetTx(knexTx, mongoDBSession, context, listId, existing);
     });
 }
 
-async function unsubscribeByEmailAndGetTx(tx, context, listId, email) {
+async function unsubscribeByEmailAndGetTx(tx, mongoDBSession, context, listId, email) {
     const existing = await tx(getSubscriptionTableName(listId)).where('hash_email', hashEmail(email)).first();
-    return await _unsubscribeExistingAndGetTx(tx, context, listId, existing);
+    return await _unsubscribeExistingAndGetTx(tx, mongoDBSession, context, listId, existing);
 }
 
 async function unsubscribeByEmailAndGet(context, listId, email) {
-    return await knex.transaction(async tx => {
-        return await unsubscribeByEmailAndGetTx(tx, context, listId, email);
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        return await unsubscribeByEmailAndGetTx(knexTx, mongoDBSession, context, listId, email);
     });
 }
 
-async function changeStatusTx(tx, context, listId, subscriptionId, subscriptionStatus) {
+/** @KnexMongoDBTransaction */
+async function changeStatusTx(tx, mongoDBSession, context, listId, subscriptionId, subscriptionStatus) {
     const existing = await tx(getSubscriptionTableName(listId)).where('id', subscriptionId).first();
-    await _changeStatusTx(tx, context, listId, existing, subscriptionStatus);
+    await _changeStatusTx(tx, mongoDBSession, context, listId, existing, subscriptionStatus);
 }
 
-
-
+/** @KnexMongoDBTransaction */
 async function updateAddressAndGet(context, listId, subscriptionId, emailNew) {
-    return await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'list', listId, 'manageSubscriptions');
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'list', listId, 'manageSubscriptions');
 
-        const existing = await tx(getSubscriptionTableName(listId)).where('id', subscriptionId).first();
+        const existing = await knexTx(getSubscriptionTableName(listId)).where('id', subscriptionId).first();
         if (!existing) {
             throw new interoperableErrors.NotFoundError();
         }
 
         if (existing.email !== emailNew) {
             const hashedEmail = hashEmail(emailNew);
-            await tx(getSubscriptionTableName(listId)).where('hash_email', hashedEmail).del();
+            await knexTx(getSubscriptionTableName(listId)).where('hash_email', hashedEmail).del();
             /* Synchronizing with MongoDB */
             await getMongoDB().collection(getSubscriptionTableName(listId)).deleteMany({
                 hash_email: hashedEmail
-            });
+            }, { session: mongoDBSession });
 
-            await tx(getSubscriptionTableName(listId)).where('id', subscriptionId).update({
+            await knexTx(getSubscriptionTableName(listId)).where('id', subscriptionId).update({
                 email: emailNew
             });
 
@@ -851,11 +859,12 @@ async function updateAddressAndGet(context, listId, subscriptionId, emailNew) {
     });
 }
 
+/** @KnexMongoDBTransaction */
 async function updateManaged(context, listId, cid, entity) {
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'list', listId, 'manageSubscriptions');
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'list', listId, 'manageSubscriptions');
 
-        const groupedFieldsMap = await getGroupedFieldsMapTx(tx, listId);
+        const groupedFieldsMap = await getGroupedFieldsMapTx(knexTx, listId);
 
         const update = {};
         for (const key in groupedFieldsMap) {
@@ -870,9 +879,9 @@ async function updateManaged(context, listId, cid, entity) {
 
         ungroupSubscription(groupedFieldsMap, update);
 
-        await tx(getSubscriptionTableName(listId)).where('cid', cid).update(update);
+        await knexTx(getSubscriptionTableName(listId)).where('cid', cid).update(update);
         /* Synchronizing with MongoDB */
-        await getMongoDB().collection(getSubscriptionTableName(listId)).updateOne({ cid }, { $set: update });
+        await getMongoDB().collection(getSubscriptionTableName(listId)).updateOne({ cid }, { $set: update }, { session: mongoDBSession });
     });
 }
 

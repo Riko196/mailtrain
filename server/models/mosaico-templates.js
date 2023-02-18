@@ -1,6 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
+const { knexMongoDBTransaction } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const { enforce, filterObject } = require('../lib/helpers');
 const dtHelpers = require('../lib/dt-helpers');
@@ -97,17 +98,18 @@ async function updateWithConsistencyCheck(context, entity) {
     });
 }
 
+/** @KnexMongoDBTransaction */
 async function remove(context, id) {
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'mosaicoTemplate', id, 'delete');
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'mosaicoTemplate', id, 'delete');
 
-        await dependencyHelpers.ensureNoDependencies(tx, context, id, [
+        await dependencyHelpers.ensureNoDependencies(knexTx, context, id, [
             {
                 entityTypeId: 'template',
-                rows: async (tx, limit) => {
+                rows: async (knexTx, limit) => {
                     const result = [];
 
-                    const tmpls = await tx('templates').where('type', 'mosaico').select(['id', 'name', 'data']);
+                    const tmpls = await knexTx('templates').where('type', 'mosaico').select(['id', 'name', 'data']);
                     for (const tmpl of tmpls) {
                         const data = JSON.parse(tmpl.data);
                         if (data.mosaicoTemplate === id) {
@@ -123,10 +125,10 @@ async function remove(context, id) {
             }
         ]);
 
-        await files.removeAllTx(tx, context, 'mosaicoTemplate', 'file', id);
-        await files.removeAllTx(tx, context, 'mosaicoTemplate', 'block', id);
+        await files.removeAllTx(knexTx, mongoDBSession, context, 'mosaicoTemplate', 'file', id);
+        await files.removeAllTx(knexTx, mongoDBSession, context, 'mosaicoTemplate', 'block', id);
 
-        await tx('mosaico_templates').where('id', id).del();
+        await knexTx('mosaico_templates').where('id', id).del();
     });
 }
 

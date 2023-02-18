@@ -1,7 +1,7 @@
 'use strict';
 
 const knex = require('../lib/knex');
-const { getMongoDB } = require('../lib/mongodb');
+const { getMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const hasher = require('node-object-hash')();
 const dtHelpers = require('../lib/dt-helpers');
 const shortid = require('../lib/shortid');
@@ -154,11 +154,12 @@ async function _validateAndPreprocess(tx, entity) {
     enforce(entity.unsubscription_mode >= UnsubscriptionMode.MIN && entity.unsubscription_mode <= UnsubscriptionMode.MAX, 'Unknown unsubscription mode');
 }
 
+/** @KnexMongoDBTransaction */
 async function create(context, entity) {
-    return await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'namespace', entity.namespace, 'createList');
+    return await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'namespace', entity.namespace, 'createList');
 
-        await _validateAndPreprocess(tx, entity);
+        await _validateAndPreprocess(knexTx, entity);
 
         const fieldsToAdd = [];
 
@@ -204,7 +205,7 @@ async function create(context, entity) {
         const filteredEntity = filterObject(entity, allowedKeys);
         filteredEntity.cid = shortid.generate();
 
-        const ids = await tx('lists').insert(filteredEntity);
+        const ids = await knexTx('lists').insert(filteredEntity);
         const id = ids[0];
 
         await knex.schema.raw('CREATE TABLE `subscription__' + id + '` (\n' +
@@ -237,10 +238,13 @@ async function create(context, entity) {
             '  KEY `updated` (`updated`)\n' +
             ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE utf8mb4_general_ci;\n');
 
-        await shares.rebuildPermissionsTx(tx, { entityTypeId: 'list', entityId: id });
+        /* Used out of transaction because createCollection is not allowed in MongoDB transaction */
+        await getMongoDB().createCollection(`subscription__${id}`);
+
+        await shares.rebuildPermissionsTx(knexTx, { entityTypeId: 'list', entityId: id });
 
         for (const fld of fieldsToAdd) {
-            await fields.createTx(tx, context, id, fld);
+            await fields.createTx(knexTx, context, id, fld);
         }
 
         await activityLog.logEntityActivity('list', EntityActivityType.CREATE, id);
@@ -275,27 +279,32 @@ async function updateWithConsistencyCheck(context, entity) {
     });
 }
 
+/** @KnexMongoDBTransaction */
 async function remove(context, id) {
-    await knex.transaction(async tx => {
-        await shares.enforceEntityPermissionTx(tx, context, 'list', id, 'delete');
+    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+        await shares.enforceEntityPermissionTx(knexTx, context, 'list', id, 'delete');
 
-        await dependencyHelpers.ensureNoDependencies(tx, context, id, [
+        await dependencyHelpers.ensureNoDependencies(knexTx, context, id, [
             {
                 entityTypeId: 'campaign',
-                query: tx => tx('campaign_lists')
+                query: knexTx => knexTx('campaign_lists')
                     .where('campaign_lists.list', id)
                     .innerJoin('campaigns', 'campaign_lists.campaign', 'campaigns.id')
                     .select(['campaigns.id', 'campaigns.name'])
             }
         ]);
 
-        await fields.removeAllByListIdTx(tx, context, id);
-        await segments.removeAllByListIdTx(tx, context, id);
-        await imports.removeAllByListIdTx(tx, context, id);
+        await fields.removeAllByListIdTx(knexTx, context, id);
+        await segments.removeAllByListIdTx(knexTx, context, id);
+        await imports.removeAllByListIdTx(knexTx, context, id);
 
-        await tx('lists').where('id', id).del();
+        await knexTx('lists').where('id', id).del();
         await knex.schema.dropTableIfExists(subscriptions.getSubscriptionTableName(id));
+        await getMongoDB().collection(subscriptions.getSubscriptionTableName(id)).deleteMany({}, { session: mongoDBSession });
+
+        /* Used out of transaction because drop is not allowed in MongoDB transaction */
         await getMongoDB().collection(subscriptions.getSubscriptionTableName(id)).drop();
+
         await activityLog.logEntityActivity('list', EntityActivityType.REMOVE, id);
     });
 }

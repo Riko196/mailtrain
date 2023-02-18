@@ -2,6 +2,7 @@
 
 const config = require('../lib/config');
 const knex = require('../lib/knex');
+const { getMongoDB, connectToMongoDB, knexMongoDBTransaction } = require('../lib/mongodb');
 const path = require('path');
 const log = require('../lib/log');
 const fsExtra = require('fs-extra-promise');
@@ -144,6 +145,7 @@ function prepareCsv(impt) {
     inputStream.pipe(parser);
 }
 
+/** @KnexMongoDBTransaction */
 async function _execImportRun(impt, handlers) {
     try {
         let imptRun;
@@ -184,8 +186,8 @@ async function _execImportRun(impt, handlers) {
 
                     lastId = rows[rows.length - 1].id;
 
-                    await knex.transaction(async tx => {
-                        const groupedFieldsMap = await subscriptions.getGroupedFieldsMapTx(tx, impt.list);
+                    await knexMongoDBTransaction(async (knexTx, mongoDBSession) => {
+                        const groupedFieldsMap = await subscriptions.getGroupedFieldsMapTx(knexTx, impt.list);
 
                         let newRows = 0;
 
@@ -197,12 +199,14 @@ async function _execImportRun(impt, handlers) {
                             };
 
                             try {
-                                await subscriptions.createTxWithGroupedFieldsMap(tx, contextHelpers.getAdminContext(), impt.list, groupedFieldsMap, subscr, impt.id, meta);
+                                await subscriptions.createTxWithGroupedFieldsMap(knexTx, mongoDBSession, contextHelpers.getAdminContext(), impt.list, groupedFieldsMap, subscr, impt.id, meta);
                                 if (!meta.existing) {
                                     newRows += 1;
                                 }
 
                             } catch (err) {
+                                log.error(err);
+                                log.error(err.stack);
                                 failures.push({
                                     run: imptRun.id,
                                     source_id: subscr.source_id,
@@ -214,8 +218,10 @@ async function _execImportRun(impt, handlers) {
 
                         for (const unsubscr of unsubscrs) {
                             try {
-                                await subscriptions.unsubscribeByEmailAndGetTx(tx, contextHelpers.getAdminContext(), impt.list, unsubscr.email);
+                                await subscriptions.unsubscribeByEmailAndGetTx(knexTx, mongoDBSession, contextHelpers.getAdminContext(), impt.list, unsubscr.email);
                             } catch (err) {
+                                log.error(err);
+                                log.error(err.stack);
                                 failures.push({
                                     run: imptRun.id,
                                     source_id: unsubscr.source_id,
@@ -230,9 +236,9 @@ async function _execImportRun(impt, handlers) {
                         countFailed += failures.length;
 
                         if (failures.length > 0) {
-                            await tx('import_failed').insert(failures);
+                            await knexTx('import_failed').insert(failures);
                         }
-                        await tx('import_runs').where('id', imptRun.id).update({
+                        await knexTx('import_runs').where('id', imptRun.id).update({
                             last_id: lastId,
                             new: countNew,
                             failed: countFailed,
@@ -254,6 +260,8 @@ async function _execImportRun(impt, handlers) {
 
                 log.info('Importer', `BASIC_SUBSCRIBE run ${impt.id}.${imptRun.id} finished`);
             } catch (err) {
+                log.error(err);
+                log.error(err.stack);
                 await knex('import_runs').where('id', imptRun.id).update({
                     status: RunStatus.FAILED,
                     error: err.message,
@@ -401,6 +409,10 @@ async function run() {
     }
 
     running = true;
+
+    if (getMongoDB() === null) {
+        await connectToMongoDB();
+    }
 
     let task;
     while ((task = await getTask()) != null) {

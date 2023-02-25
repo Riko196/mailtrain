@@ -24,7 +24,7 @@ export default class List extends Component {
 
         return (
             <div>
-                <h2>{t('mailtrain2')}</h2>
+                <h2>{t('mailtrain3')}</h2>
                 <div>{t('build') + ' 2021-05-25-0915'}</div>
                 <p>{mailtrainConfig.shoutout}</p>
             </div>

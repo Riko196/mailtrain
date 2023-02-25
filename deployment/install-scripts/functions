@@ -59,7 +59,7 @@ function performInstallLocal {
 
 Basic usage: install-${hostType}-local.sh
 
-Installs Mailtrain 2 on ${hostTypeLabel}. This performs installation for local use on HTTP ports 3000, 3003, 3004. If you want
+Installs Mailtrain 3 on ${hostTypeLabel}. This performs installation for local use on HTTP ports 3000, 3003, 3004. If you want
 to make these ports available from outside, setup an HTTPS proxy yourself or use install-${hostType}-https.sh instead.
 
 Example: install-${hostType}-local.sh
@@ -92,7 +92,7 @@ function performInstallHttps {
 
 Basic usage: install-${hostType}-https.sh <trusted host> <sandbox host> <public host> <email>
 
-Installs Mailtrain 2 on ${hostTypeLabel}. This performs installation for external use. It installs Mailtrain, sets up
+Installs Mailtrain 3 on ${hostTypeLabel}. This performs installation for external use. It installs Mailtrain, sets up
 a reverse HTTPS proxy using Apache HTTPD, sets up firewall rules, and obtains a certificate from Letsencrypt.
 
 You have to allocate three endpoints for Mailtrain - trusted (admin UI), sandbox (editors for templates), public (subscription forms and archive).

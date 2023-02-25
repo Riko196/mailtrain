@@ -71,7 +71,7 @@ async function senderWorkerSynchronizedInit(workerId, maxWorkers) {
         await getMongoDB().collection('sender_workers').updateOne(
             { _id: workerId },
             { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING } },
-            { transactionSession }
+            { session: transactionSession }
         );
 
         /* Setup null substitute for all workers still substituted by this worker
@@ -80,7 +80,7 @@ async function senderWorkerSynchronizedInit(workerId, maxWorkers) {
         await getMongoDB().collection('sender_workers').updateMany(
             { substitute: workerId },
             { $set: { substitute: null } },
-            { transactionSession }
+            { session: transactionSession }
         );
     }, transactionOptions);
 

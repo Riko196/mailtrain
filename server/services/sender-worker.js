@@ -4,7 +4,7 @@ const { connectToMongoDB, getMongoDB, getNewTransactionSession } = require('../l
 const config = require('../lib/config');
 const log = require('../lib/log');
 const activityLog = require('../lib/activity-log');
-const { sleep, getRandomFromRange } = require('../lib/helpers');
+const { sleep, getRandomFromRange, getTimeDifference } = require('../lib/helpers');
 const { CampaignTrackerActivityType } = require('../../shared/activity-log');
 const CampaignMailMaker = require('../lib/sender/mail-maker/campaign-mail-maker');
 const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-sender');
@@ -49,6 +49,7 @@ class SenderWorker {
         /* If worker synchronization is set, start an asynchronous callback that creates WorkerSynchronizer
          * for this worker and takes care of worker synchronization */
         if (workerSynchronizationIsSet()) {
+            this.lastReleaseTime = new Date();
             this.workerSynchronizer = new WorkerSynchronizer(this.maxWorkers, this.workerId, this.state, this.ranges);
         }
 
@@ -88,6 +89,13 @@ class SenderWorker {
         this.state.value = SenderWorkerState.WORKING;
     }
 
+    /**
+     *  @returns whether SenderWorker should check release right now.
+     */
+    doRelease() {
+        return workerSynchronizationIsSet() && getTimeDifference(this.lastReleaseTime) > SLEEP_PERIOD.max;
+    }
+
     /** 
      * Infinite sender loop which always checks tasks of sending campaigns and queued messages which then sends.
      */
@@ -109,7 +117,8 @@ class SenderWorker {
                     await this.checkQueuedMessages(range);
                 }
 
-                if (workerSynchronizationIsSet()) {
+                if (this.doRelease()) {
+                    this.lastReleaseTime = new Date();
                     await this.workerSynchronizer.releaseSynchronizingWorkers(transactionSession);
                     await this.workerSynchronizer.releaseRedundantSubstitutions(transactionSession);
                 }

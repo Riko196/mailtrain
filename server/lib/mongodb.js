@@ -68,7 +68,7 @@ async function knexMongoDBTransaction(callback) {
                 }
             });
 
-            /* Knex transction always throws exception if is aborted so here we do not need to check it manually */
+            /* Knex transaction always throws exception if is aborted so here we do not need to check it manually */
         }, transactionOptions);
 
         return transactionResult;

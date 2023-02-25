@@ -11,7 +11,8 @@ module.exports = {
     hashEmail,
     hashToUint32,
     sleep,
-    getRandomFromRange
+    getRandomFromRange,
+    getTimeDifference
 };
 
 function enforce(condition, message) {
@@ -84,4 +85,9 @@ function sleep(ms) {
 
 function getRandomFromRange(from, to) {
     return Math.floor(Math.random() * (to - from) + from);
+}
+
+function getTimeDifference(time) {
+    const currentTime = new Date();
+    return currentTime - time;
 }

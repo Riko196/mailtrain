@@ -1,10 +1,8 @@
-# Mailtrain v2
+# Mailtrain v3
 
-Mailtrain is a self hosted newsletter application built on Node.js (v14+) and MySQL (v8+) or MariaDB (v10+).
+Mailtrain is a self hosted newsletter application built on Node.js (v14+), MongoDB(v4.5.0+) and MySQL (v8+) or MariaDB (v10+).
 
-This is version 2 of Mailtrain. It mostly implements all features of v1 and add some more. It is a complete rewrite, so you will have to install it from scratch.
-
-If you are upgrading from Mailtrain v1, backup the DB and use it for Mailtrain v2. Mailtrain v2 should be able to upgrade the DB to the new schema.
+This is version 3 of Mailtrain, whose implemented features are a new architecture that can scale horizontally on large data, supporting high availability of all critical services, containing safe shutdown of the system, and having more readable and upgradeable source code of the Sender component.
 
 ![](https://mailtrain.org/mailtrain.png)
 
@@ -20,29 +18,45 @@ If you are upgrading from Mailtrain v1, backup the DB and use it for Mailtrain v
 * Hierarchical namespaces for enterprise-level situations
 * Builtin Zone-MTA (https://github.com/zone-eu/zone-mta) for close-to-zero setup of mail delivery
 
-## Recommended minimal hardware Requirements
+## Deployment requirements
+
+### Minimal hardware requirements:
 * 2 vCPU
-* 4096 MB RAM
+* 4096 MB
+* At least 500GB internal data storage
+* Network connection with a speed of at least 1,000 Mbps
 
+### Recommended operating systems:
+* CentOS 7+
+* Debian 10+
+* Ubuntu 18.04+
 
-## Quick Start
+### Additional hardware and software requirements for distributed mode:
+* Each node where the MongoDB and HAPUBLIC server will run must be able to connect to all other nodes where all other MongoDB and HAPUBLIC servers will run. It is important to ensure that network and security systems, including all interfaces and firewalls, allow these connections.
+* Each node where the HAPUBLIC worker will run together with the non-highly available section must be able to read and write into one shared file system.
+* Installed and configured Slurm Workload Manager \cite{slurm} on each node. For any other platforms, the deployment procedure is not documented and has to be done by the customer manually.
+
+## Deployment process
 
 ### Preparation
-Mailtrain creates three URL endpoints, which are referred to as "trusted", "sandbox" and "public". This allows Mailtrain
-to guarantee security and avoid XSS attacks in the multi-user settings. The function of these three endpoints is as follows:
-- *trusted* - This is the main endpoint for the UI that a logged-in user uses to manage lists, send campaigns, etc.
-- *sandbox* - This is an endpoint not directly visible to a user. It is used to host WYSIWYG template editors.
-- *public* - This is an endpoint for subscribers. It is used to host subscription management forms, files and archive.
+Mailtrain creates four URL servers, which are referred to as "TRUSTED", "SANDBOX", "PUBLIC", and "HAPUBLIC". This allows Mailtrain
+to guarantee security and avoid XSS attacks in the multi-user settings. The function of these three servers is as follows:
+- *TRUSTED* - This is the main server for the UI that a logged-in user uses to manage lists, send campaigns, etc.
+- *SANDBOX* - This is an server not directly visible to a user. It is used to host WYSIWYG template editors.
+- *PUBLIC* - This is an server for subscribers. It is used to host subscription management forms and archive.
+- *HAPUBLIC* - This is an highly available server for subscribers. It is used to host all critical services required non-stop runnning such as subscription management events and files.
 
-The recommended deployment of Mailtrain would use 3 DNS entries that all points to the **same** IP address. For example as follows:
-- *lists.example.com* - public endpoint (A record `lists` under `example.com` domain)
-- *mailtrain.example.com* - trusted endpoint (CNAME record `mailtrain` under `example.com` domain that points to `lists`)
-- *sbox-mailtrain.example.com* - sandbox endpoint (CNAME record `sbox-mailtrain` under `example.com` domain that points to `lists`)
+The recommended deployment of Mailtrain would use four DNS entries that all points to the **same** IP address. For example as follows:
+- *halists.example.com* - HAPUBLIC endpoint (A record `halists` under `example.com` domain)
+- *lists.example.com* - PUBLIC endpoint (A record `lists` under `example.com` domain)
+- *mailtrain.example.com* - TRUSTED endpoint (CNAME record `mailtrain` under `example.com` domain that points to `lists`)
+- *sbox-mailtrain.example.com* - SANDBOX endpoint (CNAME record `sbox-mailtrain` under `example.com` domain that points to `lists`)
 
+### Centralized mode
 
-### Installation on fresh CentOS 7 or Ubuntu 18.04 LTS (public website secured by SSL)
+#### Installation on fresh CentOS 7 or Ubuntu 18.04 LTS (for production, public website secured by SSL)
 
-This will setup a publicly accessible Mailtrain instance. All endpoints (trusted, sandbox, public) will provide both HTTP (on port 80)
+This will setup a publicly accessible Mailtrain instance. All servers (TRUSTED, SANDBOX, PUBLIC) will provide both HTTP (on port 80)
 and HTTPS (on port 443). The HTTP ports just issue HTTP redirect to their HTTPS counterparts.
 
 The script below will also acquire a valid certificate from [Let's Encrypt](https://letsencrypt.org/).
@@ -76,7 +90,7 @@ Thus, by running this script below, you agree with the Let's Encrypt's Terms of 
     cd /opt
     git clone https://github.com/Mailtrain-org/mailtrain.git
     cd mailtrain
-    git checkout v2
+    git checkout v3
     ```
 
 4. Run the installation script. Replace the urls and your email address with the correct values. **NOTE** that running this script you agree
@@ -98,7 +112,7 @@ Thus, by running this script below, you agree with the Let's Encrypt's Terms of 
     systemctl enable mailtrain
     ```
 
-6. Open the trusted endpoint (like `https://mailtrain.example.com`)
+6. Open the TRUSTED endpoint (like `https://mailtrain.example.com`)
 
 7. Authenticate as `admin`:`test`
 
@@ -109,13 +123,14 @@ Thus, by running this script below, you agree with the Let's Encrypt's Terms of 
 10. If you intend to sign your email by DKIM, set the DKIM key and DKIM selector under Administration/Send Configurations.
 
 
-### Installation on fresh CentOS 7 or Ubuntu 18.04 LTS (local installation)
+#### Installation on fresh CentOS 7 or Ubuntu 18.04 LTS (for development)
 
 This will setup a locally accessible Mailtrain instance (primarily for development and testing).
-All endpoints (trusted, sandbox, public) will provide only HTTP as follows:
-- http://localhost:3000 - trusted endpoint
-- http://localhost:3003 - sandbox endpoint
-- http://localhost:3004 - public endpoint
+All servers (TRUSTED, SANDBOX, public) will provide only HTTP as follows:
+- http://localhost:3000 - TRUSTED endpoint
+- http://localhost:3003 - SANDBOX endpoint
+- http://localhost:3004 - PUBLIC endpoint
+- http://localhost:8001 - HAPUBLIC endpoint
 
 1. Login as root. (I had some problems running npm as root on CentOS 7 on AWS. This seems to be fixed by the seemingly extraneous `su` within `sudo`.)
     ```
@@ -139,7 +154,7 @@ All endpoints (trusted, sandbox, public) will provide only HTTP as follows:
     cd /opt
     git clone https://github.com/Mailtrain-org/mailtrain.git
     cd mailtrain
-    git checkout v2
+    git checkout v3
     ```
 
 4. Run the installation script. Replace the urls and your email address with the correct values. **NOTE** that running this script you agree
@@ -161,24 +176,26 @@ All endpoints (trusted, sandbox, public) will provide only HTTP as follows:
     systemctl enable mailtrain
     ```
 
-6. Open the trusted endpoint http://localhost:3000
+6. Open the TRUSTED endpoint http://localhost:3000
 
 7. Authenticate as `admin`:`test`
 
 
 
-### Deployment with Docker and Docker compose
+#### Deployment with Docker and Docker compose
 
-This setup starts a stack composed of Mailtrain, MongoDB, Redis, and MariaDB. It will setup a locally accessible Mailtrain instance with HTTP endpoints as follows.
-- http://localhost:3000 - trusted endpoint
-- http://localhost:3003 - sandbox endpoint
-- http://localhost:3004 - public endpoint
+This setup starts a stack composed of Mailtrain, MongoDB, Redis, and MariaDB. It will setup a locally accessible Mailtrain instance with HTTP servers as follows.
+- http://localhost:3000 - TRUSTED endpoint
+- http://localhost:3003 - SANDBOX endpoint
+- http://localhost:3004 - PUBLIC endpoint
+- http://localhost:8001 - HAPUBLIC endpoint
 
-To make this publicly accessible, you should add reverse proxy that makes these endpoints publicly available over HTTPS. If using the proxy, you also need to set the URL bases and `--withProxy` parameter via `MAILTRAIN_SETTING` as shown below.
+To make this publicly accessible, you should add reverse proxy that makes these servers publicly available over HTTPS. If using the proxy, you also need to set the URL bases and `--withProxy` parameter via `MAILTRAIN_SETTING` as shown below.
 An example of such proxy would be:
 - http://localhost:3000 -> https://mailtrain.example.com
 - http://localhost:3003 -> https://sbox-mailtrain.example.com
 - http://localhost:3004 -> https://lists.example.com
+- http://localhost:8001 -> https://halists.example.com
 
 To deploy Mailtrain with Docker, you need the following two dependencies installed:
 
@@ -189,7 +206,7 @@ These are the steps to start Mailtrain via docker-compose:
 
 1. Download Mailtrain's docker-compose build file
     ```
-    curl -O https://raw.githubusercontent.com/Mailtrain-org/mailtrain/v2/docker-compose.yml
+    curl -O https://raw.githubusercontent.com/Mailtrain-org/mailtrain/v3/docker-compose.yml
     ```
 
 2. Deploy Mailtrain via docker-compose (in the directory to which you downloaded the `docker-compose.yml` file). This will take quite some time when run for the first time. Subsequent executions will be fast.
@@ -197,14 +214,14 @@ These are the steps to start Mailtrain via docker-compose:
     docker-compose up
     ```
 
-3. Open the trusted endpoint http://localhost:3000
+3. Open the TRUSTED endpoint http://localhost:3000
 
 4. Authenticate as `admin`:`test`
 
 The instructions above use an automatically built Docker image on DockerHub (https://hub.docker.com/r/mailtrain/mailtrain). If you want to build the Docker image yourself (e.g. when doing development), use the `docker-compose-local.yml` located in the project's root directory.
 
 
-### Deployment with Docker and Docker compose (for development)
+#### Deployment with Docker and Docker compose (for development)
 This setup starts a stack like above, but is tweaked to be used for local development using docker containers.
 
 1. Clone this repository
@@ -228,6 +245,9 @@ This setup starts a stack like above, but is tweaked to be used for local develo
     bash docker-entrypoint.sh
     ```
 
+### Distributed mode
+
+TODO
 
 ### Docker Environment Variables
 When using Docker, you can override the default Mailtrain settings via the following environment variables. These variables have to be defined in the docker-compose config
@@ -244,12 +264,14 @@ variables (e.g. `URL_BASE_TRUSTED=https://mailtrain.domain.com (and more env-var
 | ---------        | ----------- |
 | ADMIN_PASSWORD | sets Admin Password, Admin users name can be changed, but password will always be overwritten by this, please set it always, as it otherwise defaults to `test` |
 | ADMIN_ACCESS_TOKEN | sets Access Token for API, this is optional |
-| PORT_TRUSTED     | sets the trusted port of the instance (default: 3000)                 |
-| PORT_SANDBOX     | sets the sandbox port of the instance (default: 3003)                 |
-| PORT_PUBLIC      | sets the public port of the instance (default: 3004)                  |
-| URL_BASE_TRUSTED | sets the external trusted url of the instance (default: http://localhost:3000), e.g. https://mailtrain.example.com |
-| URL_BASE_SANDBOX | sets the external sandbox url of the instance (default: http://localhost:3003), e.g. https://sbox-mailtrain.example.com |
-| URL_BASE_PUBLIC  | sets the external public url of the instance (default: http://localhost:3004), e.g. https://lists.example.com |
+| PORT_TRUSTED     | sets the TRUSTED port of the instance (default: 3000)                 |
+| PORT_SANDBOX     | sets the SANDBOX port of the instance (default: 3003)                 |
+| PORT_PUBLIC      | sets the PUBLIC port of the instance (default: 3004)                  |
+| PORT_HAPUBLIC    | sets the HAPUBLIC port of the instance (default: 8001)                |
+| URL_BASE_TRUSTED | sets the external TRUSTED url of the instance (default: http://localhost:3000), e.g. https://mailtrain.example.com |
+| URL_BASE_SANDBOX | sets the external SANDBOX url of the instance (default: http://localhost:3003), e.g. https://sbox-mailtrain.example.com |
+| URL_BASE_PUBLIC  | sets the external PUBLIC url of the instance (default: http://localhost:3004), e.g. https://lists.example.com |
+| URL_BASE_HAPUBLIC| sets the external HAPUBLIC url of the instance (default: http://localhost:8001), e.g. https://halists.example.com |
 | WWW_HOST         | sets the address that the server binds to (default: 0.0.0.0)          |
 | WWW_PROXY        | use if Mailtrain is behind an http reverse proxy (default: false)     |
 | WWW_SECRET       | sets the secret for the express session (default: `$(pwgen -1)`)      |
@@ -295,6 +317,7 @@ services:
     - URL_BASE_TRUSTED
     - URL_BASE_SANDBOX
     - URL_BASE_PUBLIC
+    - URL_BASE_HAPUBLIC
 ```
 
 

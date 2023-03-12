@@ -9,7 +9,9 @@ const { CampaignActivityType } = require('../../../../shared/activity-log');
 const { CampaignStatus, CampaignType } = require('../../../../shared/campaigns');
 const { MessageType, MessageStatus } = require('../../../../shared/messages');
 
+/* Size of the Scheduler period */
 const CHECK_PERIOD = 30 * 1000;
+/* Size of chunk for scheduling queued messages and campaigns */
 const CHUNK_SIZE = 1000;
 
 /**
@@ -36,7 +38,7 @@ class Scheduler {
 
     /**
      * Method which repeats endlessly with CHECK_PERIOD long pauses and always checks whether there are scheduled campaigns
-     * or queued messages and schedules them if yes.
+     * or queued messages and schedules them if so.
      */
     periodicCheck() {
         /* noinspection JSIgnoredPromiseFromCall */
@@ -46,7 +48,7 @@ class Scheduler {
     }
 
     /**
-     *  One checking round of the Scheduler.
+     *  One checking period of the Scheduler.
      */
     scheduleCheck() {
         /* This task means synchronizing new data from MongoDB */
@@ -112,7 +114,7 @@ class Scheduler {
     /**
      * Prepare scheduled queued messages for Synchronizer.
      * 
-     * @argument sendConfigurationId
+     * @argument sendConfigurationId - Id of sendConfiguration according to which are queued messages prepared
      */
     async prepareQueuedBySendConfiguration(sendConfigurationId) {
         const msgQueue = this.sendConfigurationMessageQueue.get(sendConfigurationId);
@@ -212,8 +214,8 @@ class Scheduler {
                 });
 
                 if (campaignId) {
-                    /* noinspection JSIgnoredPromiseFromCall */
-                    await this.prepareCampaign(campaignId);
+                    /* !!! No await because of asychronous and faster processing !!! */
+                    this.prepareCampaign(campaignId);
                 } 
             } while (campaignId); 
         } catch (error) {

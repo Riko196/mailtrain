@@ -11,12 +11,7 @@ const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-send
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
 const PlatformSolver = require('../lib/sender/sender-worker/platform-solver');
-const { 
-        SenderWorkerState,
-        workerSynchronizationIsSet,
-        senderWorkerInit,
-        senderWorkerSynchronizedInit
-    } = require('../lib/sender/sender-worker/init');
+const { SenderWorkerState, workerSynchronizationIsSet, senderWorkerInit } = require('../lib/sender/sender-worker/init');
 const WorkerSynchronizer = require('../lib/sender/sender-worker/worker-synchronizer');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus } = require('../../shared/campaigns');
@@ -25,7 +20,7 @@ const { MessageType } = require('../../shared/messages');
 const subscriptions = require('../models/subscriptions');
 
 /** Chunk of messages which will be processed in one iteration. */
-const CHUNK_SIZE = 100;
+const CHUNK_SIZE = 10000;
 /** Range of period of time for worker sleeping if there is no available work. */
 const SLEEP_PERIOD = { min: 10000, max: 30000 };
 
@@ -388,9 +383,7 @@ async function spawnSenderWorker() {
     /* Get worker ID */
     const workerId = PlatformSolver.getWorkerId();
     /* Init SenderWorker and get all info about him */
-    const senderWorkerInfo = workerSynchronizationIsSet()
-        ? await senderWorkerSynchronizedInit(workerId, maxWorkers)
-        : senderWorkerInit(workerId, maxWorkers);
+    const senderWorkerInfo = await senderWorkerInit(workerId, maxWorkers);
     /* Create instance and start working */
     const senderWorker = new SenderWorker(senderWorkerInfo);
 

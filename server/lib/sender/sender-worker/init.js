@@ -15,7 +15,7 @@ const SenderWorkerState = {
 };
 
 /**
- * Return whether the sender workers will synchronize with each other.
+ * @returns whether the sender workers will synchronize with each other.
  */
 function workerSynchronizationIsSet() {
     return config.sender.workerSynchronization;
@@ -24,7 +24,7 @@ function workerSynchronizationIsSet() {
 /**
  * Init sender_workers collection if it has not been initialized yet.
  */
- async function initSenderWorkersCollection() {
+async function initSenderWorkersCollection() {
     const maxWorkers = config.sender.workers;
     const countOfWorkers = await getMongoDB().collection('sender_workers').countDocuments({});
 
@@ -35,10 +35,15 @@ function workerSynchronizationIsSet() {
             await getMongoDB().collection('sender_workers').insertOne(computeSenderWorkerInit(id, SenderWorkerState.SYNCHRONIZING, maxWorkers));
         }
     }
-};
+}
 
 /**
  * Compute SenderWorker init values.
+ * 
+ * @argument workerId - Id of SenderWorker
+ * @argument initState - Init state of SenderWorker
+ * @argument maxWorkers - maximum number of SenderWorkers
+ * @returns initialized SenderWorker object with the current and all needed data.
  */
 function computeSenderWorkerInit(workerId, initState, maxWorkers) {
     /* Computing hash range of his campaign_messages for which he is responsible to send */
@@ -61,41 +66,62 @@ function computeSenderWorkerInit(workerId, initState, maxWorkers) {
 }
 
 /**
- * Get init SenderWorker if synchronized is set.
+ * Get SenderWorker data if synchronized is set.
+ * 
+ * @argument workerId - Id of SenderWorker
+ * @returns SenderWorker object with the current and all needed data.
  */
-async function senderWorkerSynchronizedInit(workerId, maxWorkers) {
+async function senderWorkerSynchronizedInit(workerId) {
     const transactionSession = getNewTransactionSession();
     
-    await transactionSession.withTransaction(async () => {
-        /* Setup SYNCHRONIZING state and report first alive state */
-        await getMongoDB().collection('sender_workers').updateOne(
-            { _id: workerId },
-            { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING } },
-            { session: transactionSession }
-        );
-
-        /* Setup null substitute for all workers still substituted by this worker
-         * (it could happen when worker substitutes someone and is turned off and
-         * turned on too fast and another worker has not enough time to set it up) */
-        await getMongoDB().collection('sender_workers').updateMany(
-            { substitute: workerId },
-            { $set: { substitute: null } },
-            { session: transactionSession }
-        );
-    }, transactionOptions);
-
-    await transactionSession.endSession();
+    try {
+        await transactionSession.withTransaction(async () => {
+            /* Setup SYNCHRONIZING state and report first alive state */
+            await getMongoDB().collection('sender_workers').updateOne(
+                { _id: workerId },
+                { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING } },
+                { session: transactionSession }
+            );
+    
+            /* Setup null substitute for all workers still substituted by this worker
+             * (it could happen when worker substitutes someone and is turned off and
+             * turned on too fast and another worker has not enough time to set it up) */
+            await getMongoDB().collection('sender_workers').updateMany(
+                { substitute: workerId },
+                { $set: { substitute: null } },
+                { session: transactionSession }
+            );
+        }, transactionOptions);
+    } catch(error) {
+        return null;
+    } finally {
+        await transactionSession.endSession();
+    }
     
     const existingSenderWorker = await getMongoDB().collection('sender_workers').findOne({ _id: workerId });
-    return { ...existingSenderWorker, maxWorkers };
-};
+    return existingSenderWorker;
+}
 
 /**
- * Get init SenderWorker if synchronized is not set.
+ * Get SenderWorker data.
+ * 
+ * @argument workerId - Id of SenderWorker
+ * @argument maxWorkers - maximum number of SenderWorkers
+ * @returns SenderWorker object with the current and all needed data.
  */
-function senderWorkerInit(workerId, maxWorkers) {
-    const init = computeSenderWorkerInit(workerId, SenderWorkerState.WORKING, maxWorkers);
-    return { ...init, maxWorkers };
+async function senderWorkerInit(workerId, maxWorkers) {
+    let senderWorker = null;
+    
+    if (workerSynchronizationIsSet()) {
+        do {
+            /* Do transaction with retry until transaction is successfully executed */
+            senderWorker = await senderWorkerSynchronizedInit(workerId, maxWorkers);
+        } while (senderWorker === null);
+    } else {
+        senderWorker = computeSenderWorkerInit(workerId, SenderWorkerState.WORKING, maxWorkers);
+    }
+
+    return { ...senderWorker, maxWorkers };
 }
 
 module.exports.SenderWorkerState = SenderWorkerState;

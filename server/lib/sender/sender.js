@@ -21,8 +21,10 @@ let synchronizerProcess;
 async function spawnSynchronizer() {
     log.verbose('Sender', 'Spawning synchronizer process');
 
+    /* If the non-highly available section of Mailtrain failed during synchronizing campaigns, then schedule them again */
     await knex('campaigns').where('status', CampaignStatus.SYNCHRONIZING).update({ status: CampaignStatus.SCHEDULED });
 
+    /* Fork the Synchronizer process and return the result about success */
     return await new Promise((resolve, reject) => {
         synchronizerProcess = fork(path.join(__dirname, '..', '..', 'services', 'synchronizer.js'), [], {
             cwd: path.join(__dirname, '..', '..'),
@@ -97,7 +99,7 @@ async function spawnWorker(workerId) {
 }
 
 /**
- * Spawn Sender component (Synchronizer + all Workers).
+ * Spawn Sender component (Synchronizer + all SenderWorkers).
  * 
  * @argument callback - function that represents bluebird.promisify
  * 
@@ -112,16 +114,16 @@ async function spawn(callback) {
      */
     await initSenderWorkersCollection();
 
-    /* Spawn all sender workers if mailtrain is in centralized mode */
+    /* Spawn all SenderWorkers if mailtrain is in centralized mode */
     if (config.mode === 'centralized') {
         const spawnWorkerFutures = [];
 
         for (let workerId = 0; workerId < config.sender.workers; workerId++) {
-            spawnWorkerFutures.push(spawnWorker(workerId));
+            // spawnWorkerFutures.push(spawnWorker(workerId));
         }
 
         /* Wait until every worker starts */
-        await Promise.all(spawnWorkerFutures);
+        // await Promise.all(spawnWorkerFutures);
     }
 
     return callback();

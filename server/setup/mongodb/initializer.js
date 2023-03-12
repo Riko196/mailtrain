@@ -23,13 +23,22 @@ async function synchronizeMongoDbWithMySQL() {
         const mongodb = getMongoDB();
         log.info('Synchronizer', 'Successfully reconnected to mailtrain MongoDB database!');
 
-        /* Synchronizing blacklist */
-        log.info('Synchronizer', 'Synchronizing blacklist collection...');
-        const blackSubscribers = await knex('blacklist').select('*');
-        if (blackSubscribers.length) {
-            await mongodb.collection('blacklist').insertMany(blackSubscribers);
-        }
+        await synchronizeSymmetricReplicationCollections(mongodb);
+        await synchronizeQueuedCollections(mongodb);
 
+        log.info('Synchronizer', 'MongoDB database successfully synchronized with MySQL database!');
+    } catch(error) {
+        log.error('Synchronizer', 'Error: ', error);
+    }
+
+    process.exit();
+}
+
+/**
+ *  Async function which synchronizes all MySQL tables with MongoDB collections that represent queued collections.
+ */
+async function synchronizeQueuedCollections(mongodb) {
+    try {
         /* Synchronizing campaign_messages */
         log.info('Synchronizer', 'Synchronizing campaign_messages collection...');
         const campaignMessages = await knex('campaign_messages').select('*');
@@ -40,6 +49,22 @@ async function synchronizeMongoDbWithMySQL() {
             });
 
             await mongodb.collection('campaign_messages').insertMany(campaignMessages);
+        }
+    } catch(error) {
+        log.error('Synchronizer', 'Error: ', error);
+    }
+}
+
+/**
+ *  Async function which synchronizes all MySQL tables with MongoDB collections that represent symmetric replications.
+ */
+async function synchronizeSymmetricReplicationCollections(mongodb) {
+    try {
+        /* Synchronizing blacklist */
+        log.info('Synchronizer', 'Synchronizing blacklist collection...');
+        const blackSubscribers = await knex('blacklist').select('*');
+        if (blackSubscribers.length) {
+            await mongodb.collection('blacklist').insertMany(blackSubscribers);
         }
 
         /* Synchronizing subscriptions */
@@ -74,9 +99,7 @@ async function synchronizeMongoDbWithMySQL() {
         log.info('Synchronizer', 'MongoDB database successfully synchronized with MySQL database!');
     } catch(error) {
         log.error('Synchronizer', 'Error: ', error);
-        console.log(error);
     }
-    process.exit();
 }
 
 synchronizeMongoDbWithMySQL();

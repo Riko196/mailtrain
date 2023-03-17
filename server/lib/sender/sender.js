@@ -119,11 +119,11 @@ async function spawn(callback) {
         const spawnWorkerFutures = [];
 
         for (let workerId = 0; workerId < config.sender.workers; workerId++) {
-            // spawnWorkerFutures.push(spawnWorker(workerId));
+            spawnWorkerFutures.push(spawnWorker(workerId));
         }
 
         /* Wait until every worker starts */
-        // await Promise.all(spawnWorkerFutures);
+        await Promise.all(spawnWorkerFutures);
     }
 
     return callback();

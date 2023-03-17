@@ -5,7 +5,7 @@ const { SenderWorkerState } = require('./init');
 const log = require('../../log');
 
 /** It defines period in which workers report alive state or synchronize with each other. */
-const PERIOD = 5 * 1000;
+const PERIOD = 30 * 1000;
 /** It defines round of period in which workers synchronize with each other. */
 const SYNCHRONIZING_ROUND = 5;
 

@@ -14,6 +14,12 @@ const uri = process.env.SLURM_MONGODB_URL ? process.env.SLURM_MONGODB_URL : conf
 const mongoDBClient = new MongoClient(uri);
 let mongodb = null;
 
+class SafeAbortError extends Error {
+    constructor(message) {
+        super(message);
+    }
+}
+
 const transactionOptions = {
     readPreference: 'primary',
     readConcern: { level: 'local' },
@@ -60,20 +66,28 @@ async function knexMongoDBTransaction(callback) {
         let transactionResult = null;
         
         await mongoDBSession.withTransaction(async () => {
-            await knex.transaction(async knexTx => {
-                transactionResult = await callback(knexTx, mongoDBSession);
-
-                if (mongoDBSession.transaction.state === 'TRANSACTION_ABORTED') {
-                    await knexTx.rollback(new Error("Transaction ABORTED! Try again."));
-                }
-            });
-
+            try {
+                await knex.transaction(async knexTx => {
+                    transactionResult = await callback(knexTx, mongoDBSession);
+    
+                    if (mongoDBSession.transaction.state === 'TRANSACTION_ABORTED') {
+                        await knexTx.rollback(new Error("Transaction ABORTED! Try again."));
+                    }
+                });
+            } catch(error) {
+                throw new SafeAbortError(error.message);
+            }
+            
             /* Knex transaction always throws exception if is aborted so here we do not need to check it manually */
         }, transactionOptions);
 
         return transactionResult;
-    } catch (error) {
-        throw error;
+    } catch(error) {
+        if (error instanceof SafeAbortError) {
+            throw error;
+        } else {
+            throw new Error("Transaction partially ABORTED! Try it immediately again to fix the inconsistency!")
+        }
     } finally {
         await mongoDBSession.endSession();
     }

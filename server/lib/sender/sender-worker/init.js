@@ -66,38 +66,50 @@ function computeSenderWorkerInit(workerId, initState, maxWorkers) {
 }
 
 /**
+ * Get SenderWorker to the SYNCHRONIZING state.
+ * 
+ * @argument workerId - Id of SenderWorker
+ */
+async function goToSynchronizingState(workerId) {
+    const transactionSession = getNewTransactionSession();
+
+    let successfulTransaction = false;
+    while (!successfulTransaction) {
+        successfulTransaction = true;
+        try {
+            await transactionSession.withTransaction(async () => {
+                /* Setup SYNCHRONIZING state and report first alive state */
+                await getMongoDB().collection('sender_workers').updateOne(
+                    { _id: workerId },
+                    { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING } },
+                    { session: transactionSession }
+                );
+        
+                /* Setup null substitute for all workers still substituted by this worker
+                 * (it could happen when worker substitutes someone and is turned off and
+                 * turned on too fast and another worker has not enough time to set it up) */
+                await getMongoDB().collection('sender_workers').updateMany(
+                    { substitute: workerId },
+                    { $set: { substitute: null } },
+                    { session: transactionSession }
+                );
+            }, transactionOptions);
+        } catch(error) {
+            successfulTransaction = false;
+        } finally {
+            await transactionSession.endSession();
+        }
+    }
+}
+
+/**
  * Get SenderWorker data if synchronized is set.
  * 
  * @argument workerId - Id of SenderWorker
  * @returns SenderWorker object with the current and all needed data.
  */
 async function senderWorkerSynchronizedInit(workerId) {
-    const transactionSession = getNewTransactionSession();
-    
-    try {
-        await transactionSession.withTransaction(async () => {
-            /* Setup SYNCHRONIZING state and report first alive state */
-            await getMongoDB().collection('sender_workers').updateOne(
-                { _id: workerId },
-                { $set: { lastReport: new Date(), state: SenderWorkerState.SYNCHRONIZING } },
-                { session: transactionSession }
-            );
-    
-            /* Setup null substitute for all workers still substituted by this worker
-             * (it could happen when worker substitutes someone and is turned off and
-             * turned on too fast and another worker has not enough time to set it up) */
-            await getMongoDB().collection('sender_workers').updateMany(
-                { substitute: workerId },
-                { $set: { substitute: null } },
-                { session: transactionSession }
-            );
-        }, transactionOptions);
-    } catch(error) {
-        return null;
-    } finally {
-        await transactionSession.endSession();
-    }
-    
+    await goToSynchronizingState(workerId);
     const existingSenderWorker = await getMongoDB().collection('sender_workers').findOne({ _id: workerId });
     return existingSenderWorker;
 }
@@ -113,10 +125,7 @@ async function senderWorkerInit(workerId, maxWorkers) {
     let senderWorker = null;
     
     if (workerSynchronizationIsSet()) {
-        do {
-            /* Do transaction with retry until transaction is successfully executed */
-            senderWorker = await senderWorkerSynchronizedInit(workerId, maxWorkers);
-        } while (senderWorker === null);
+        senderWorker = await senderWorkerSynchronizedInit(workerId, maxWorkers);
     } else {
         senderWorker = computeSenderWorkerInit(workerId, SenderWorkerState.WORKING, maxWorkers);
     }
@@ -126,6 +135,7 @@ async function senderWorkerInit(workerId, maxWorkers) {
 
 module.exports.SenderWorkerState = SenderWorkerState;
 module.exports.workerSynchronizationIsSet = workerSynchronizationIsSet;
+module.exports.goToSynchronizingState = goToSynchronizingState;
 module.exports.initSenderWorkersCollection = initSenderWorkersCollection;
 module.exports.senderWorkerSynchronizedInit = senderWorkerSynchronizedInit;
 module.exports.senderWorkerInit = senderWorkerInit;

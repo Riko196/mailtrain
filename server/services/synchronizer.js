@@ -399,8 +399,8 @@ class Synchronizer {
 
             if (queuedMessage.withErrors) {
                 this.scheduler.postponeSendConfigurationId(queuedMessage.sendConfiguration, queuedMessage.updated);
-                await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
                 await knex('queued').where('id', queuedMessage._id).update('status', MessageStatus.SCHEDULED);
+                await this.mongodb.collection('queued').deleteOne({ _id: queuedMessage._id });
                 continue;
             } else {
                 await knex('queued').where('id', queuedMessage._id).del();
@@ -428,14 +428,14 @@ class Synchronizer {
         try {
             await knex('campaign_messages').insert({
                 campaign: triggeredMessage.campaign.id,
-                list: triggeredMessage.listId,
-                subscription: triggeredMessage.subscriptionId,
+                list: triggeredMessage.list,
+                subscription: triggeredMessage.subscription,
                 send_configuration: triggeredMessage.sendConfiguration.id,
                 status: MessageStatus.SENT,
                 response: triggeredMessage.response,
                 response_id: triggeredMessage.response_id,
                 updated: new Date(),
-                hash_email: triggeredMessage.hashEmail
+                hash_email: triggeredMessage.hash_email
             });
 
             await knex('campaigns').where('id', triggeredMessage.campaign.id).increment('delivered');

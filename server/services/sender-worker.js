@@ -11,7 +11,12 @@ const CampaignMailSender = require('../lib/sender/mail-sender/campaign-mail-send
 const QueuedMailMaker = require('../lib/sender/mail-maker/queued-mail-maker');
 const QueuedMailSender = require('../lib/sender/mail-sender/queued-mail-sender');
 const PlatformSolver = require('../lib/sender/sender-worker/platform-solver');
-const { SenderWorkerState, workerSynchronizationIsSet, senderWorkerInit } = require('../lib/sender/sender-worker/init');
+const { 
+    SenderWorkerState,
+    workerSynchronizationIsSet,
+    senderWorkerInit,
+    goToSynchronizingState
+} = require('../lib/sender/sender-worker/init');
 const WorkerSynchronizer = require('../lib/sender/sender-worker/worker-synchronizer');
 const { SendConfigurationError } = require('../lib/sender/mail-sender/mail-sender');
 const { CampaignStatus } = require('../../shared/campaigns');
@@ -56,6 +61,8 @@ class SenderWorker {
      *  Wait until your substitute finish if you are substituted and then update yourself to WORKING state. 
      */
     async waitAndPrepareForTheStart() {
+        this.state.value = SenderWorkerState.SYNCHRONIZING;
+        
         let preparedWorker = null;
         while (!preparedWorker) {
             preparedWorker = await this.mongodb.collection('sender_workers').findOne({
@@ -81,7 +88,9 @@ class SenderWorker {
             { _id: this.workerId },
             { $set: { state: SenderWorkerState.WORKING } }
         );
+
         this.state.value = SenderWorkerState.WORKING;
+        this.ranges = [this.ranges[0]];
     }
 
     /**
@@ -118,6 +127,12 @@ class SenderWorker {
                     await this.workerSynchronizer.releaseRedundantSubstitutions(transactionSession);
                 }
             } catch (error) {
+                /* In case of network failure wait until connection is established and repeat init procedure */
+                if (workerSynchronizationIsSet() && (error.code === 'ECONNREFUSED' || error.code === 'ENETUNREACH')) {
+                    await goToSynchronizingState(this.workerId);
+                    await this.waitAndPrepareForTheStart();
+                }
+
                 log.error(`SenderWorker:${this.workerId}`, error);
                 log.error(`SenderWorker:${this.workerId}`, error.stack);
             } finally {

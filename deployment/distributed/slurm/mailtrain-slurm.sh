@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --time=2:00:00 -N 8 -c 16 -p mpi-homo-short --mem 101G
+#SBATCH --time=2:00:00 --nodes=8 -n 256 -p mpi-homo-short -A kdsstudent -c 2 --mem-per-cpu=1G
 #
 # Login into the cluster:
 #
@@ -22,8 +22,10 @@
 #
 # Tunnel port:
 #
-#   $ ssh -L :7020:127.0.0.1:22 ${mailtrain_ip}
+#   $ ssh -L :7020:127.0.0.1:3000 ${mailtrain_ip}
 #
+# MariaDB access: 
+#   $ ch-run -b "./mariadb:/var/lib/mysql" -b "./tmp/mariadb:/run" "./mariadb_container/" -- mysql -u mailtrain -p
 #
 
 set -e
@@ -62,28 +64,33 @@ sleep 2
 
 echo "MariaDB server is running!"
 
-# Start the mongodb server and initialize mongodb cluster
+# Start and initialize MongoDB cluster
 ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- /usr/local/bin/docker-entrypoint.sh --config /etc/mongod.conf.orig &
-sleep 5
-ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- mongo --eval "rs.initiate()" &
+sleep 10
+ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- mongo --eval "rs.initiate()" 
+ch-run -b "$mongodbdir:/data/db" -b "$tmpdir/mongodb:/tmp" "$mongodbimg" -- mongo --eval "rs.status()"
 
-echo "MongoDB server is running!"
+echo "MongoDB cluster is running!"
 
+# Set mailtrain_src path and MongoDB URL
+mailtrain_src="/opt/mailtrain/server"
+mongodb_url=mongodb://${mailtrain_ip}:27017
 # Start HAProxy
-ch-run -b "$tmpdir/haproxy:/usr/local/etc/haproxy" "$haproxyimg" -- /usr/local/bin/docker-entrypoint.sh &
-sleep 2
-
-echo "HAProxy is running!"
+# ch-run -b "$tmpdir/haproxy:/var/run" "$haproxyimg" -- /usr/local/bin/docker-entrypoint.sh haproxy -f /usr/local/etc/haproxy/haproxy.cfg &
+# sleep 5
+# echo "HAProxy is running!"
+# Start sender-workers
+# hapublic_worker_port=3005
+# srun -p mpi-homo-short -A kdsstudent -n 8 sh -c "(SLURM_MONGODB_URL='${mongodb_url}' HAPUBLIC_WORKER_PORT=${hapublic_worker_port} ch-run -c '${mailtrain_src}' -b '$tmpdir/files:/opt/mailtrain/server/# files' '${mailtrainimg}' -- \
+                      #node lib/hapublic/hapublic-worker.js \
+                      #&& sleep infinity)"
 
 # Start Mailtrain
-mailtrain_src="${mailtrainimg}/opt/mailtrain/server"
-ch-run -c "$mailtrain_src" -b "$tmpdir/files:/opt/mailtrain/server/files" "$mailtrainimg" -- node index.js &
-sleep 5
+ch-run -c "$mailtrain_src" -b "$tmpdir/files:/opt/mailtrain/server/files" "$mailtrainimg" -- node index.js
 
 # Start sender-workers
-mongodb_url=mongodb://${mailtrain_ip}:27017
-srun -p mpi-homo-short -A kdsstudent -n 16 sh -c "(SLURM_MONGODB_URL='${mongodb_url}' ch-run -c '${mailtrain_src}' '${mailtrainimg}' -- \
-                       node services/sender-worker.js \
-                       && sleep infinity)"
+srun -p mpi-homo-short -A kdsstudent -n 256 sh -c "(SLURM_MONGODB_URL='${mongodb_url}' ch-run -c '${mailtrain_src}' '${mailtrainimg}' -- \
+                      node services/sender-worker.js \
+                      && sleep infinity)"
 
 echo "Mailtrain main node IP: ${mailtrain_ip}"

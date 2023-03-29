@@ -305,6 +305,9 @@ class MailSender {
     }
 }
 
+/**
+ * Type of error thrown during sending e-mail and represents a temporary error of SMTP server (retry sending when occurred).
+ */
 class SendConfigurationError extends Error {
     constructor(sendConfigurationId, ...args) {
         super(...args);
@@ -313,6 +316,9 @@ class SendConfigurationError extends Error {
     }
 }
 
+/**
+ * Type of error thrown during sending e-mail and represents a permanent internal error of SMTP server (no retry sending when occurred).
+ */
 class NodemailerError extends Error {
     constructor(mail, responseCode) {
         super(mail);

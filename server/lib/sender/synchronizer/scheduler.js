@@ -12,7 +12,7 @@ const { MessageType, MessageStatus } = require('../../../../shared/messages');
 /* Size of the Scheduler period */
 const CHECK_PERIOD = 30 * 1000;
 /* Size of chunk for scheduling queued messages and campaigns */
-const CHUNK_SIZE = 1000;
+const CHUNK_SIZE = 10000;
 
 /**
  * Scheduler which periodically checks all kinds of campaigns and queued messages and prepares them for next processing.

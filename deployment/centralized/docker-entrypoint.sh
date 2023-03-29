@@ -97,8 +97,8 @@ builtinZoneMTA:
   redis: redis://${REDIS_HOST}:6379/2
   poolName: $POOL_NAME
 
-queue:
-  processes: 5
+sender:
+  workers: 5
 
 log:
   level: $LOG_LEVEL

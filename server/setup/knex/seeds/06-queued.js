@@ -6,7 +6,7 @@ const {
     getFakeSubscriptionMessage,
     getFakeAPITransactionalMessage
 } = require('../data-generator');
-const { MessageType } = require("../../../../shared/messages");
+const { MessageType, MessageStatus } = require("../../../../shared/messages");
 
 exports.seed = (knex, Promise) => (async() => {
   const countOfMessages = 5000;
@@ -23,7 +23,8 @@ exports.seed = (knex, Promise) => (async() => {
         await knex('queued').insert({
             send_configuration: 1,
             type: MessageType.SUBSCRIPTION,
-            data: JSON.stringify(message)
+            data: JSON.stringify(message),
+            status: MessageStatus.SCHEDULED
         });
     } else {
         message = getFakeAPITransactionalMessage();
@@ -31,7 +32,8 @@ exports.seed = (knex, Promise) => (async() => {
         await knex('queued').insert({
             send_configuration: 1,
             type: MessageType.API_TRANSACTIONAL,
-            data: JSON.stringify(message)
+            data: JSON.stringify(message),
+            status: MessageStatus.SCHEDULED
         });
     }
   }

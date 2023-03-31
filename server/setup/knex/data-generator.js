@@ -129,14 +129,6 @@ async function getFakeTriggeredMessage() {
 }
 
 async function getFakeTestMessage() {
-  const messageData = {
-    campaignId: campaignId,
-    subject: 'SUBJECT',
-    html: '<!DOCTYPE html> <html> </html>',
-    text: 'TEXT',
-    tagLanguage: '<!DOCTYPE html> <html> </html>',
-    attachments: []
-  };
 }
 
 function getFakeSubscriptionMessage() {

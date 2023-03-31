@@ -56,7 +56,7 @@ The recommended deployment of Mailtrain would use four DNS entries that all poin
 
 #### Installation on fresh CentOS 7 or Ubuntu 18.04 LTS (for production, public website secured by SSL)
 
-This will setup a publicly accessible Mailtrain instance. All servers (TRUSTED, SANDBOX, PUBLIC) will provide both HTTP (on port 80)
+This will setup a publicly accessible Mailtrain instance. All servers (TRUSTED, SANDBOX, PUBLIC, HAPUBLIC) will provide both HTTP (on port 80)
 and HTTPS (on port 443). The HTTP ports just issue HTTP redirect to their HTTPS counterparts.
 
 The script below will also acquire a valid certificate from [Let's Encrypt](https://letsencrypt.org/).
@@ -126,7 +126,7 @@ Thus, by running this script below, you agree with the Let's Encrypt's Terms of 
 #### Installation on fresh CentOS 7 or Ubuntu 18.04 LTS (for development)
 
 This will setup a locally accessible Mailtrain instance (primarily for development and testing).
-All servers (TRUSTED, SANDBOX, public) will provide only HTTP as follows:
+All servers (TRUSTED, SANDBOX, PUBLIC, HAPUBLIC) will provide only HTTP as follows:
 - http://localhost:3000 - TRUSTED endpoint
 - http://localhost:3003 - SANDBOX endpoint
 - http://localhost:3004 - PUBLIC endpoint
@@ -222,6 +222,7 @@ The instructions above use an automatically built Docker image on DockerHub (htt
 
 
 #### Deployment with Docker and Docker compose (for development)
+
 This setup starts a stack like above, but is tweaked to be used for local development using docker containers.
 
 1. Clone this repository
@@ -247,9 +248,30 @@ This setup starts a stack like above, but is tweaked to be used for local develo
 
 ### Distributed mode
 
-TODO
+For deploying Mailtrain in distributed mode, follow the steps and deploy it in centralized mode. When everything works correctly,
+then turn off Mailtrain and follow these steps, which will switch Mailtrain to the distributed mode:
+
+1. In the configuration file, change yaml variable `mode: centralized` -> `mode: distributed`
+
+2. Setup highly available MongoDB cluster so that it meets your requirements according to the official documentation step by step [MongoDB documentation](https://www.mongodb.com/docs/v4.4/tutorial/deploy-shard-cluster/)
+
+3. Setup highly available HAProxy according to the documentation step by step [HAProxy documentation](https://www.digitalocean.com/community/tutorials/how-to-set-up-highly-available-haproxy-servers-with-keepalived-and-reserved-ips-on-ubuntu-14-04)
+
+4. Run all HAPUBLIC workers 
+
+5. Setup amount of SenderWorkers and allow worker synchronization in the configuration file (for example):
+    ```
+    sender:
+        workers: 256
+        workerSynchronization: true
+    ```
+
+6. Run all SenderWorkers in your cluster 
+
+There is no unique and general deployment process for the distributed mode since the whole process differs from platform to platform and depends on your cluster architecture. It is, therefore, necessary to reckon with the fact that there could occur some unexpected errors not included in these official documentations mentioned above. In that case, it is essential to solving them on your own.
 
 ### Docker Environment Variables
+
 When using Docker, you can override the default Mailtrain settings via the following environment variables. These variables have to be defined in the docker-compose config
 file. You can give them a value directly in the `docker-compose.yml` config file.
 

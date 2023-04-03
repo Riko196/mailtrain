@@ -43,5 +43,5 @@ RUN set -ex; \
 
 COPY --from=builder /app/ /app/
 
-EXPOSE 3000 3003 3004
+EXPOSE 3000 3003 3004 8001
 ENTRYPOINT ["bash", "/app/docker-entrypoint.sh"]

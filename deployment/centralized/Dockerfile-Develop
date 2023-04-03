@@ -8,7 +8,7 @@ RUN set -ex; \
     apk add --update --no-cache \
     make gcc g++ git python pwgen netcat-openbsd bash imagemagick
 
-EXPOSE 3000 3003 3004
+EXPOSE 3000 3003 3004 8001
 
 # Keep container running, so you can access it
 CMD tail -f /dev/null

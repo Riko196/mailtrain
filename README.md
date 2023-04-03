@@ -98,12 +98,12 @@ Thus, by running this script below, you agree with the Let's Encrypt's Terms of 
 
    For Centos 7 type:
     ```
-    bash deployment/install-scripts/install-centos7-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com admin@example.com
+    bash deployment/install-scripts/install-centos7-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com halists.example.com admin@example.com
     ```
 
    For Ubuntu 18.04 LTS type:
     ```
-    bash deployment/install-scripts/install-ubuntu1804-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com admin@example.com
+    bash deployment/install-scripts/install-ubuntu1804-https.sh mailtrain.example.com sbox-mailtrain.example.com lists.example.com halists.example.com admin@example.com
     ```
 
 5. Start Mailtrain and enable to be started by default when your server starts.

@@ -67,11 +67,7 @@ class MailSender {
         this.addDkimKeys(transport.mailer.sendConfiguration, mail);
 
         try {
-            // return await transport.sendMailAsync(mail);
-            return { 
-                response: '250 OK',
-                messageId: '<xxxxxxxxx@xxx.xx>'
-            };
+            return await transport.sendMailAsync(mail);
         } catch (err) {
             if ((err.responseCode && err.responseCode >= 400 && err.responseCode < 500)
                 || (err.code === 'ECONNECTION' && err.errno === 'ECONNREFUSED')) {
